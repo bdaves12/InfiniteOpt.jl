@@ -30,7 +30,7 @@ function make_reduced_variable_ref(ivref::InfiniteVariableRef, removed_index::In
                                 )::ReducedInfiniteVariableRef
     inf_model = JuMP.owner_model(ivref)
     index = inf_model.next_var_index += 1
-    inf_model.reduced_info[index] = ReducedInfiniteInfo(ivref,
+    inf_model.reduced_variable[index] = ReducedInfiniteVariable(ivref,
                                                  Dict(removed_index => support))
     if haskey(inf_model.infinite_to_reduced, JuMP.index(ivref))
         push!(inf_model.infinite_to_reduced[JuMP.index(ivref)], index)
@@ -55,7 +55,7 @@ function make_reduced_variable_ref(ivref::InfiniteVariableRef,
                                     supports::Dict)::ReducedInfiniteVariableRef
     inf_model = JuMP.owner_model(ivref)
     index = inf_model.next_var_index += 1
-    inf_model.reduced_info[index] = ReducedInfiniteInfo(ivref, copy(supports))
+    inf_model.reduced_variable[index] = ReducedInfiniteVariable(ivref, copy(supports))
     if haskey(inf_model.infinite_to_reduced, JuMP.index(ivref))
         push!(inf_model.infinite_to_reduced[JuMP.index(ivref)], index)
     else
@@ -98,6 +98,8 @@ but will need to be extended for unsupported `expr` types and for user-defined
 measure data types.
 """
 function expand_measure end
+
+# TODO fix reduced variables to address case of partial vector indexing
 
 # InfiniteVariableRef
 function expand_measure(ivref::InfiniteVariableRef,
@@ -166,7 +168,7 @@ function expand_measure(rvref::ReducedInfiniteVariableRef,
         tuple_loc = findfirst(isequal(group), _group.(orig_prefs))
         for i in eachindex(data.supports)
             pvref = make_point_variable_ref(infinite_variable_ref(rvref))
-            _reduced_info(rvref).eval_supports[tuple_loc] = data.supports[i]
+            _reduced_variable(rvref).eval_supports[tuple_loc] = data.supports[i]
             support = Tuple(eval_supports(rvref)[j] for j in eachindex(eval_supports(rvref)))
             point_mapper(trans_model, pvref, infinite_variable_ref(rvref), support)
             JuMP.add_to_expression!(aff, data.coefficients[i] *
@@ -179,7 +181,7 @@ function expand_measure(rvref::ReducedInfiniteVariableRef,
         for i in eachindex(data.supports)
             new_rvref = make_reduced_variable_ref(infinite_variable_ref(rvref),
                                                eval_supports(rvref))
-            _reduced_info(new_rvref).eval_supports[tuple_loc] = data.supports[i]
+            _reduced_variable(new_rvref).eval_supports[tuple_loc] = data.supports[i]
             JuMP.add_to_expression!(aff, data.coefficients[i] *
                                     data.weight_function(data.supports[i]),
                                     new_rvref)

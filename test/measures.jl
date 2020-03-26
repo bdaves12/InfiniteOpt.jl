@@ -323,7 +323,7 @@ end
     @infinite_variable(m, inf3(par2))
     @infinite_variable(m, inf4(pars))
     @hold_variable(m, x)
-    m.reduced_info[-1] = ReducedInfiniteInfo(inf2, Dict(2 => 0.5))
+    m.reduced_variable[-1] = ReducedInfiniteVariable(inf2, Dict(2 => 0.5))
     m.infinite_to_reduced[JuMP.index(inf2)] = [-1]
     rv = ReducedInfiniteVariableRef(m, -1)
     # prepare measures

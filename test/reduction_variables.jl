@@ -8,15 +8,15 @@
     @infinite_variable(m, inf2(par1, par2) == 1, Bin, start = 0)
     index = m.next_var_index + 1
     rvref1 = ReducedInfiniteVariableRef(m, index)
-    m.reduced_info[index] = ReducedInfiniteInfo(inf1, Dict(1 => 1))
+    m.reduced_variable[index] = ReducedInfiniteVariable(inf1, Dict(1 => 1))
     rvref2 = ReducedInfiniteVariableRef(m, index + 1)
-    m.reduced_info[index + 1] = ReducedInfiniteInfo(inf2, Dict(2 => 1))
-    # test _reduced_info
-    @testset "_reduced_info" begin
-        @test InfiniteOpt._reduced_info(rvref1).infinite_variable_ref == inf1
-        @test InfiniteOpt._reduced_info(rvref2).infinite_variable_ref == inf2
-        @test InfiniteOpt._reduced_info(rvref1).eval_supports == Dict(1 => 1)
-        @test InfiniteOpt._reduced_info(rvref2).eval_supports == Dict(2 => 1)
+    m.reduced_variable[index + 1] = ReducedInfiniteVariable(inf2, Dict(2 => 1))
+    # test _reduced_variable
+    @testset "_reduced_variable" begin
+        @test InfiniteOpt._reduced_variable(rvref1).infinite_variable_ref == inf1
+        @test InfiniteOpt._reduced_variable(rvref2).infinite_variable_ref == inf2
+        @test InfiniteOpt._reduced_variable(rvref1).eval_supports == Dict(1 => 1)
+        @test InfiniteOpt._reduced_variable(rvref2).eval_supports == Dict(2 => 1)
     end
     # test infinite_variable_ref
     @testset "infinite_variable_ref" begin

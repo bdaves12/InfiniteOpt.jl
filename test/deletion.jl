@@ -145,7 +145,7 @@ end
     pt2 = @point_variable(m, inf2(0.5, 0.5))
     @point_variable(m, inf3(0, [0, 0]), pt3)
     @hold_variable(m, x)
-    m.reduced_info[-1] = ReducedInfiniteInfo(inf4, Dict(2 => 0.5))
+    m.reduced_variable[-1] = ReducedInfiniteVariable(inf4, Dict(2 => 0.5))
     m.infinite_to_reduced[JuMP.index(inf4)] = [-1]
     rv = ReducedInfiniteVariableRef(m, -1)
     data = DiscreteMeasureData(par, [1], [1])
@@ -259,20 +259,20 @@ end
         @test isa(InfiniteOpt._update_infinite_variable(inf4, (par2, pars)),
                                                         Nothing)
         @test isa(InfiniteOpt._update_reduced_variable(rv, (1, )), Nothing)
-        @test m.reduced_info[JuMP.index(rv)].infinite_variable_ref == inf4
-        @test m.reduced_info[JuMP.index(rv)].eval_supports == Dict(1 => 0.5)
+        @test m.reduced_variable[JuMP.index(rv)].infinite_variable_ref == inf4
+        @test m.reduced_variable[JuMP.index(rv)].eval_supports == Dict(1 => 0.5)
         @test name(rv) == "inf4(0.5, pars)"
         @test name(meas) == "measure(inf(par) + par - x + inf4(0.5, pars))"
         # Undo changes
-        m.reduced_info[-1] = ReducedInfiniteInfo(inf4, Dict(2 => 0.5))
+        m.reduced_variable[-1] = ReducedInfiniteVariable(inf4, Dict(2 => 0.5))
         @test isa(InfiniteOpt._update_infinite_variable(inf4, (par, par2, pars)),
                                                         Nothing)
         # test removing single parameter that is reduced
         @test isa(InfiniteOpt._update_infinite_variable(inf4, (par, pars)),
                                                         Nothing)
         @test isa(InfiniteOpt._update_reduced_variable(rv, (2, )), Nothing)
-        @test m.reduced_info[JuMP.index(rv)].infinite_variable_ref == inf4
-        @test m.reduced_info[JuMP.index(rv)].eval_supports == Dict{Int,
+        @test m.reduced_variable[JuMP.index(rv)].infinite_variable_ref == inf4
+        @test m.reduced_variable[JuMP.index(rv)].eval_supports == Dict{Int,
                                Union{Number, JuMP.Containers.SparseAxisArray}}()
         @test name(rv) == "inf4(par, pars)"
         @test name(meas) == "measure(inf(par) + par - x + inf4(par, pars))"
@@ -280,31 +280,31 @@ end
         @test isa(InfiniteOpt._update_infinite_variable(inf4, (par, par2, pars)),
                                                         Nothing)
         # test removing a different single parameter
-        m.reduced_info[-1] = ReducedInfiniteInfo(inf4, Dict(1 => 0.5, 2 => 0.5))
+        m.reduced_variable[-1] = ReducedInfiniteVariable(inf4, Dict(1 => 0.5, 2 => 0.5))
         @test isa(InfiniteOpt._update_infinite_variable(inf4, (par, pars)),
                                                         Nothing)
         @test isa(InfiniteOpt._update_reduced_variable(rv, (2, )), Nothing)
-        @test m.reduced_info[JuMP.index(rv)].infinite_variable_ref == inf4
-        @test m.reduced_info[JuMP.index(rv)].eval_supports == Dict(1 => 0.5)
+        @test m.reduced_variable[JuMP.index(rv)].infinite_variable_ref == inf4
+        @test m.reduced_variable[JuMP.index(rv)].eval_supports == Dict(1 => 0.5)
         @test name(rv) == "inf4(0.5, pars)"
         @test name(meas) == "measure(inf(par) + par - x + inf4(0.5, pars))"
         # Undo changes
-        m.reduced_info[-1] = ReducedInfiniteInfo(inf4, Dict(2 => 0.5))
+        m.reduced_variable[-1] = ReducedInfiniteVariable(inf4, Dict(2 => 0.5))
         @test isa(InfiniteOpt._update_infinite_variable(inf4, (par, par2, pars)),
                                                         Nothing)
         # prepare for removing array element
         supp = convert(JuMP.Containers.SparseAxisArray, [0, 0])
-        m.reduced_info[-1] = ReducedInfiniteInfo(inf4, Dict(2 => 0.5, 3 => supp))
+        m.reduced_variable[-1] = ReducedInfiniteVariable(inf4, Dict(2 => 0.5, 3 => supp))
         new_supp = JuMP.Containers.SparseAxisArray(Dict((1,) => 0, (2,) => 0))
         filter!(x -> x.first != (1,), new_supp.data)
         # test removing array element
         @test isa(InfiniteOpt._update_reduced_variable(rv, (3, (1,))), Nothing)
-        @test m.reduced_info[JuMP.index(rv)].infinite_variable_ref == inf4
-        @test m.reduced_info[JuMP.index(rv)].eval_supports == Dict(2 => 0.5, 3 => new_supp)
+        @test m.reduced_variable[JuMP.index(rv)].infinite_variable_ref == inf4
+        @test m.reduced_variable[JuMP.index(rv)].eval_supports == Dict(2 => 0.5, 3 => new_supp)
         @test name(rv) == "inf4(par, 0.5, " * string(new_supp) * ")"
         @test name(meas) == "measure(inf(par) + par - x + " * name(rv) * ")"
         # Undo changes
-        m.reduced_info[-1] = ReducedInfiniteInfo(inf4, Dict(2 => 0.5))
+        m.reduced_variable[-1] = ReducedInfiniteVariable(inf4, Dict(2 => 0.5))
         @test isa(InfiniteOpt._update_infinite_variable(inf4, (par, par2, pars)),
                                                         Nothing)
     end
@@ -384,10 +384,10 @@ end
      @infinite_variable(m, inf(par, par2))
      @point_variable(m, inf(0.5, 0.5), pt)
      @hold_variable(m, x)
-     m.reduced_info[-1] = ReducedInfiniteInfo(inf, Dict(2 => 0.5))
+     m.reduced_variable[-1] = ReducedInfiniteVariable(inf, Dict(2 => 0.5))
      m.infinite_to_reduced[JuMP.index(inf)] = [-1]
      rv = ReducedInfiniteVariableRef(m, -1)
-     m.reduced_info[-2] = ReducedInfiniteInfo(inf, Dict(2 => 0.5))
+     m.reduced_variable[-2] = ReducedInfiniteVariable(inf, Dict(2 => 0.5))
      m.infinite_to_reduced[JuMP.index(inf)] = [-2]
      rv2 = ReducedInfiniteVariableRef(m, -2)
      data = DiscreteMeasureData(par, [1], [1])
@@ -405,7 +405,7 @@ end
      @test string(m.constrs[JuMP.index(con)].func) == "x"
      @test !haskey(m.reduced_to_constrs, JuMP.index(rv))
      @test m.infinite_to_reduced[JuMP.index(inf)] == [JuMP.index(rv2)]
-     @test !haskey(m.reduced_info, JuMP.index(rv))
+     @test !haskey(m.reduced_variable, JuMP.index(rv))
      # test deletion of special cases
      @test isa(delete(m, rv2), Nothing)
      @test name(meas2) == "measure(0)"
@@ -413,7 +413,7 @@ end
      @test string(m.constrs[JuMP.index(con2)].func) == "0"
      @test !haskey(m.reduced_to_constrs, JuMP.index(rv2))
      @test !haskey(m.infinite_to_reduced, JuMP.index(inf))
-     @test !haskey(m.reduced_info, JuMP.index(rv2))
+     @test !haskey(m.reduced_variable, JuMP.index(rv2))
      # test error
      @test_throws AssertionError delete(m, rv)
      @test_throws AssertionError delete(m, rv2)
@@ -522,7 +522,7 @@ end
      @infinite_variable(m, 0 <= x(par) <= 1, Bin)
      @infinite_variable(m, y(par) == 1, Int)
      @point_variable(m, x(0), x0)
-     m.reduced_info[-1] = ReducedInfiniteInfo(x, Dict(1 => 0.5))
+     m.reduced_variable[-1] = ReducedInfiniteVariable(x, Dict(1 => 0.5))
      m.infinite_to_reduced[JuMP.index(x)] = [-1]
      rv = ReducedInfiniteVariableRef(m, -1)
      data = DiscreteMeasureData(par, [1], [1])
@@ -577,7 +577,7 @@ end
      @infinite_variable(m, x(par))
      @infinite_variable(m, y(par2))
      @point_variable(m, x(0), x0)
-     m.reduced_info[-1] = ReducedInfiniteInfo(x, Dict(1 => 0.5))
+     m.reduced_variable[-1] = ReducedInfiniteVariable(x, Dict(1 => 0.5))
      m.infinite_to_reduced[JuMP.index(x)] = [-1]
      rv = ReducedInfiniteVariableRef(m, -1)
      data = DiscreteMeasureData(par, [1], [1])

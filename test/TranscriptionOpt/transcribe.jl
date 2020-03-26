@@ -176,7 +176,7 @@ end
     @hold_variable(m, 0 <= z <= 1, Bin)
     @hold_variable(m, w == 1, Int, start = 1)
     index = m.next_var_index + 1
-    m.reduced_info[index] = ReducedInfiniteInfo(y, Dict(1 => 1))
+    m.reduced_variable[index] = ReducedInfiniteVariable(y, Dict(1 => 1))
     yr = ReducedInfiniteVariableRef(m, index)
     tm = optimizer_model(m)
     @variable(tm, a)
@@ -294,7 +294,7 @@ end
     @hold_variable(m, 0 <= z <= 1, Bin)
     @hold_variable(m, w == 1, Int, start = 1)
     m.next_var_index += 1
-    m.reduced_info[m.next_var_index] = ReducedInfiniteInfo(y, Dict(1 => 1))
+    m.reduced_variable[m.next_var_index] = ReducedInfiniteVariable(y, Dict(1 => 1))
     yr = ReducedInfiniteVariableRef(m, m.next_var_index)
     data1 = DiscreteMeasureData(par, [1, 1], [0, 1])
     meas1 = measure(x - w, data1)

@@ -82,7 +82,7 @@ end
     @point_variable(m, inf(0), pt)
     @hold_variable(m, hold)
     red = InfiniteOpt.ReducedInfiniteVariableRef(m, 42)
-    m.reduced_info[42] = ReducedInfiniteInfo(inf2, Dict(1 => 0.5))
+    m.reduced_variable[42] = ReducedInfiniteVariable(inf2, Dict(1 => 0.5))
     # test for finite variable reference
     @testset "FiniteVariable" begin
         @test InfiniteOpt._all_parameter_refs(pt) == ()

@@ -1,6 +1,6 @@
 # Helper function to get reduced variable info
-function _reduced_info(vref::ReducedInfiniteVariableRef)::ReducedInfiniteInfo
-    return JuMP.owner_model(vref).reduced_info[JuMP.index(vref)]
+function _reduced_variable(vref::ReducedInfiniteVariableRef)::ReducedInfiniteVariable
+    return JuMP.owner_model(vref).reduced_variable[JuMP.index(vref)]
 end
 
 """
@@ -16,7 +16,7 @@ g(t, x)
 ```
 """
 function infinite_variable_ref(vref::ReducedInfiniteVariableRef)::InfiniteVariableRef
-    return _reduced_info(vref).infinite_variable_ref
+    return _reduced_variable(vref).infinite_variable_ref
 end
 
 """
@@ -33,7 +33,7 @@ Dict{Int64,Float64} with 1 entry:
 ```
 """
 function eval_supports(vref::ReducedInfiniteVariableRef)::Dict
-    return _reduced_info(vref).eval_supports
+    return _reduced_variable(vref).eval_supports
 end
 
 """
@@ -412,7 +412,7 @@ true
 """
 function JuMP.is_valid(model::InfiniteModel,
                        vref::ReducedInfiniteVariableRef)::Bool
-    return (model === JuMP.owner_model(vref) && JuMP.index(vref) in keys(model.reduced_info))
+    return (model === JuMP.owner_model(vref) && JuMP.index(vref) in keys(model.reduced_variable))
 end
 
 """
@@ -486,6 +486,6 @@ function JuMP.delete(model::InfiniteModel, vref::ReducedInfiniteVariableRef)
         delete!(model.infinite_to_reduced, JuMP.index(ivref))
     end
     # delete the info
-    delete!(model.reduced_info, JuMP.index(vref))
+    delete!(model.reduced_variable, JuMP.index(vref))
     return
 end

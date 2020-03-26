@@ -35,7 +35,7 @@ sample_info = VariableInfo(zeros(Bool, 10)...)
     @test HoldVariable(sample_info,
                        ParameterBounds()).info isa VariableInfo
     # Reduced variable info
-    @test ReducedInfiniteInfo <: AbstractReducedInfo
+    @test ReducedInfiniteVariable <: AbstractReducedInfo
 end
 
 # Test the InfiniteModel datatype

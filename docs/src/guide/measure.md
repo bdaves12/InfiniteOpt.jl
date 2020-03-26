@@ -350,7 +350,7 @@ julia> expanded_measure = expand(mref4)
 where the expanded measure is a `JuMP.GenericAffExpr` that takes
 [`ReducedInfiniteVariableRef`](@ref) in its terms. [`ReducedInfiniteVariableRef`](@ref)
 refers to the information of the reduced infinite variable stored in its model,
-in the type of [`ReducedInfiniteInfo`](@ref). Each [`ReducedInfiniteInfo`](@ref)
+in the type of [`ReducedInfiniteVariable`](@ref). Each [`ReducedInfiniteVariable`](@ref)
 records a reference for its original infinite variable, and the value of the
 fixed infinite parameter. One can query this information using
 [`infinite_variable_ref`](@ref) and [`eval_supports`](@ref) function as follows:
@@ -384,7 +384,7 @@ MultiDiscreteMeasureData
 Measure
 MeasureRef
 AbstractReducedInfo
-ReducedInfiniteInfo
+ReducedInfiniteVariable
 ReducedInfiniteVariableRef
 ```
 

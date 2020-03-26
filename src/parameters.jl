@@ -386,13 +386,13 @@ function _update_reduced_variable(vref::ReducedInfiniteVariableRef,
                 new_supports[index - 1] = support
             end
         end
-        JuMP.owner_model(vref).reduced_info[JuMP.index(vref)] = ReducedInfiniteInfo(infinite_variable_ref(vref), new_supports)
+        JuMP.owner_model(vref).reduced_variable[JuMP.index(vref)] = ReducedInfiniteVariable(infinite_variable_ref(vref), new_supports)
     # removed parameter was part of an array and was reduced previously
     elseif haskey(eval_supps, location[1])
         new_dict = filter(x -> x.first != location[2], eval_supps[location[1]].data)
         new_supports = copy(eval_supps)
         new_supports[location[1]] = JuMPC.SparseAxisArray(new_dict)
-        JuMP.owner_model(vref).reduced_info[JuMP.index(vref)] = ReducedInfiniteInfo(infinite_variable_ref(vref), new_supports)
+        JuMP.owner_model(vref).reduced_variable[JuMP.index(vref)] = ReducedInfiniteVariable(infinite_variable_ref(vref), new_supports)
     end
     if used_by_measure(vref)
         for mindex in JuMP.owner_model(vref).reduced_to_meas[JuMP.index(vref)]

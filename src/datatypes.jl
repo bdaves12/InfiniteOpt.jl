@@ -51,7 +51,7 @@ abstract type AbstractMeasureData end
 A DataType for measure abstractions.
 
 **Fields**
-- `func::T` Infinite variable expression.
+- `func::T` Variable expression.
 - `data::V` Data of the abstraction as described in a `AbstractMeasureData`
             subtype.
 """
@@ -59,6 +59,13 @@ struct Measure{T <: JuMP.AbstractJuMPScalar, V <: AbstractMeasureData}
     func::T
     data::V
 end
+
+"""
+    AbstractDerivativeVariable
+
+An abstract DataType for derivatives.
+"""
+abstract type AbstractDerivativeVariable end
 
 """
     InfiniteModel <: JuMP.AbstractModel
@@ -90,6 +97,8 @@ model an optmization problem with an infinite dimensional decision space.
                                           of dependent measure indices.
 - `param_to_vars::Dict{Int, Vector{Int}}` Infinite parameter indices to list
                                           of dependent variable indices.
+- `param_to_derivs::Dict{Int, Vector{Int}}` Infinite parameter indices to list
+                                            of dependent derivative variables.
 - `next_var_index::Int` Index - 1 of next variable index.
 - `vars::Dict{Int, Dict{Int, Union{InfOptVariable, ReducedVariable}}` Variable
                                                   indices to variable datatype.
@@ -109,12 +118,22 @@ model an optmization problem with an infinite dimensional decision space.
                                                dependent point variable indices.
 - `infinite_to_reduced::Dict{Int, Vector{Int}}` Infinite variable indices to
                                                dependent reduced variable indices.
+- `infinite_to_derivs::Dict{Int, Vector{Int}}` Infinite variable indices to
+                                               dependent derivatives
 - `has_hold_bounds::Bool` Have hold variables with bounds been added to the model
+- `next_deriv_index::Int` Index - 1 of next constraint
+- `derivs::Dict{Int, AbstractDerivativeVariable}` Derivatives added to the model
+- `deriv_to_name::Dict{Int, String}` Derivative names for printing
+- `deriv_to_lower_bound::Dict{Int, Int}` Derivatives to lower bound constraints
+- `deriv_to_upper_bound::Dict{Int, Int}` Derivatives to upper bound constraints
+- `deriv_to_constrs::Dict{Int, Vector{Int}}` Derivatives to dependent constraints
+- `deriv_to_derivs::Dict{Int, Vector{Int}}` Derivatives to dependent derivatives
+- `deriv_to_meas::Dict{Int, Vector{Int}}` Derivatives to dependent measures
 - `reduced_to_constrs::Dict{Int, Vector{Int}}` Reduced variable indices to dependent
                                                constraint indices.
 - `reduced_to_meas::Dict{Int, Vector{Int}}` Reduced variable indices to dependent
                                             measure indices.
-- `reduced_info::Dict{Int, AbstractReducedInfo}` Reduced variable indices to
+- `reduced_variable::Dict{Int, AbstractReducedInfo}` Reduced variable indices to
                                                  reduced variable information.
 - `next_constr_index::Int` Index - 1 of next constraint.
 - `constrs::Dict{Int, JuMP.AbstractConstraint}` Constraint indices to constraint
@@ -152,6 +171,7 @@ mutable struct InfiniteModel <: JuMP.AbstractModel
     param_to_constrs::Dict{Int, Vector{Int}}
     param_to_meas::Dict{Int, Vector{Int}}
     param_to_vars::Dict{Int, Vector{Int}}
+    param_to_derivs::Dict{Int, Vector{Int}}
 
     # Variable data
     next_var_index::Int
@@ -168,12 +188,24 @@ mutable struct InfiniteModel <: JuMP.AbstractModel
     var_in_objective::Dict{Int, Bool}
     infinite_to_points::Dict{Int, Vector{Int}}
     infinite_to_reduced::Dict{Int, Vector{Int}}
+    infinite_to_derivs::Dict{Int, Vector{Int}}
     has_hold_bounds::Bool
 
-    # Placeholder
+    # Derivative data
+    next_deriv_index::Int
+    derivs::Dict{Int, AbstractDerivativeVariable}
+    deriv_to_name::Dict{Int, String}
+    deriv_to_lower_bound::Dict{Int, Int}
+    deriv_to_upper_bound::Dict{Int, Int}
+    deriv_to_constrs::Dict{Int, Vector{Int}}
+    deriv_to_derivs::Dict{Int, Vector{Int}}
+    deriv_to_meas::Dict{Int, Vector{Int}}
+
+    # Reduced infinite variables
     reduced_to_constrs::Dict{Int, Vector{Int}}
     reduced_to_meas::Dict{Int, Vector{Int}}
-    reduced_info::Dict{Int, AbstractReducedInfo}
+    reduced_to_derivs::Dict{Int, Vector{Int}}
+    reduced_variable::Dict{Int, <:AbstractReducedInfo}
 
     # Constraint Data
     next_constr_index::Int
@@ -253,17 +285,23 @@ function InfiniteModel(; seed::Bool = false,
                          0, 0, Dict{Int, InfOptParameter}(), Dict{Int, String}(),
                          nothing, Dict{Int, Int}(), Dict{Int, Vector{Int}}(),
                          Dict{Int, Vector{Int}}(), Dict{Int, Vector{Int}}(),
+                         Dict{Int, Vector{Int}}(),
                          # Variables
-                         0, Dict{Int, JuMP.AbstractVariable}(),
+                         0, Dict{Int, InfOptVariable}(),
                          Dict{Int, String}(), nothing, Dict{Int, Int}(),
                          Dict{Int, Int}(), Dict{Int, Int}(), Dict{Int, Int}(),
                          Dict{Int, Int}(), Dict{Int, Vector{Int}}(),
                          Dict{Int, Vector{Int}}(), Dict{Int, Bool}(),
                          Dict{Int, Vector{Int}}(), Dict{Int, Vector{Int}}(),
-                         false,
+                         Dict{Int, Vector{Int}}(), false,
+                         # Derivatives
+                         0, Dict{Int, AbstractDerivativeVariable}(), Dict{Int, String}(),
+                         Dict{Int, Int}(), Dict{Int, Int}(),
+                         Dict{Int, Vector{Int}}(), Dict{Int, Vector{Int}}(),
+                         Dict{Int, Vector{Int}}(),
                          # Placeholder variables
                          Dict{Int, Vector{Int}}(), Dict{Int, Vector{Int}}(),
-                         Dict{Int, Tuple}(),
+                         Dict{Int, Vector{Int}}(), Dict{Int, ReducedInfiniteVariable}(),
                          # Constraints
                          0, Dict{Int, JuMP.AbstractConstraint}(),
                          Dict{Int, String}(), nothing, Dict{Int, Bool}(),
@@ -308,21 +346,21 @@ JuMP.object_dictionary(model::InfiniteModel) = model.obj_dict
 """
     GeneralVariableRef <: JuMP.AbstractVariableRef
 
-An abstract type to for variable references used with infinite models.
+An abstract type for all variable references used with infinite models.
 """
 abstract type GeneralVariableRef <: JuMP.AbstractVariableRef end
 
 """
     MeasureFiniteVariableRef <: GeneralVariableRef
 
-An abstract type to define finite variable and measure references.
+An abstract type for inheritance of finite variable and measure references.
 """
 abstract type MeasureFiniteVariableRef <: GeneralVariableRef end
 
 """
-    FiniteVariableRef <: GeneralVariableRef
+    FiniteVariableRef <: MeasureFiniteVariableRef
 
-An abstract type to define new finite variable references.
+An abstract type of finite variable references (ones that do not need transcription).
 """
 abstract type FiniteVariableRef <: MeasureFiniteVariableRef end
 
@@ -330,7 +368,9 @@ abstract type FiniteVariableRef <: MeasureFiniteVariableRef end
     HoldVariableRef <: FiniteVariableRef
 
 A DataType for finite fixed variable references (e.g., first stage variables,
-steady-state variables).
+steady-state variables). In other words, variables that are held constant over
+the infinite domain or some sub-domain of the infinite domain. Such references
+each point to an instance of [`HoldVariable`](@ref) stored in `model`.
 
 **Fields**
 - `model::InfiniteModel` Infinite model.
@@ -346,6 +386,8 @@ end
 
 A DataType for variables defined at a transcipted point (e.g., second stage
 variable at a particular scenario, dynamic variable at a discretized time point).
+Such references each point to an instance of [`PointVariable`](@ref) stored in
+`model`.
 
 **Fields**
 - `model::InfiniteModel` Infinite model.
@@ -360,15 +402,16 @@ end
     InfiniteVariableRef <: GeneralVariableRef
 
 A DataType for untranscripted infinite dimensional variable references (e.g.,
-second stage variables, time dependent variables).
+second stage variables, time dependent variables). Such references each point to
+an instance of [`InfiniteVariable`](@ref) stored in `model`.
 
 **Fields**
 - `model::InfiniteModel` Infinite model.
 - `index::Int` Index of variable in model.
 """
 struct InfiniteVariableRef <: GeneralVariableRef
-    model::InfiniteModel # `model` owning the variable
-    index::Int           # Index in `model.variables`
+    model::InfiniteModel
+    index::Int
 end
 
 """
@@ -376,7 +419,8 @@ end
 
 A DataType for partially transcripted infinite dimensional variable references.
 This is used to expand measures that contain infinite variables that are not
-fully transcripted by the measure.
+fully transcripted by the measure. Such references each point to an instance of
+[`ReducedInfiniteVariable`](@ref) stored in `model`.
 
 **Fields**
 - `model::InfiniteModel` Infinite model.
@@ -391,7 +435,8 @@ end
     ParameterRef <: GeneralVariableRef
 
 A DataType for untranscripted infinite parameters references that parameterize
-the infinite variables.
+the infinite variables. Such references each point to an instance of
+[`InfOptParameter`](@ref) stored in `model`.
 
 **Fields**
 - `model::InfiniteModel` Infinite model.
@@ -403,15 +448,65 @@ struct ParameterRef <: GeneralVariableRef
 end
 
 """
-    MeasureRef <: FiniteVariableRef
+    MeasureRef <: MeasureFiniteVariableRef
 
-A DataType for referring to measure abstractions.
+A DataType for referring to measures/integrals that are stored as [`Measure`](@ref)
+objects in `model`.
 
 **Fields**
 - `model::InfiniteModel` Infinite model.
 - `index::Int` Index of variable in model.
 """
 struct MeasureRef <: MeasureFiniteVariableRef
+    model::InfiniteModel
+    index::Int
+end
+
+"""
+    DerivativeVariableRef <: GeneralVariableRef
+
+A DataType for referencing derivatives of infinite variables that are stored as
+[`DerivativeVariable`](@ref) objects in `model`.
+
+**Fields**
+- `model::InfiniteModel` Infinite model.
+- `index::Int` Index of variable in model.
+"""
+struct DerivativeVariableRef <: GeneralVariableRef
+    model::InfiniteModel
+    index::Int
+end
+
+"""
+    ReducedDerivativeVariableRef <: GeneralVariableRef
+
+A DataType for referencing derivatives of infinite variables whose infinite
+parameter dependencies have been reduced and that are stored as
+[`ReducedDerivativeVariable`](@ref) objects in `model`. This is analagous to
+[`ReducedInfiniteVariableRef`](@ref) except for derivative variables.
+
+**Fields**
+- `model::InfiniteModel` Infinite model.
+- `index::Int` Index of variable in model.
+"""
+struct ReducedDerivativeVariableRef <: GeneralVariableRef
+    model::InfiniteModel
+    index::Int
+end
+
+"""
+    PointDerivativeVariableRef <: FiniteVariableRef
+
+A DataType for referencing derivatives of infinite variables whose infinite
+parameter dependencies have been fully transcribed and that are stored as
+[`PointDerivativeVariable`](@ref) objects in `model`. This is analagous to
+[`PointVariableRef`](@ref) except for derivatives variables.
+
+**Fields**
+- `model::InfiniteModel` Infinite model.
+- `index::Int` Index of variable in model.
+"""
+struct PointDerivativeVariableRef <: FiniteVariableRef
     model::InfiniteModel
     index::Int
 end
@@ -462,6 +557,7 @@ end
 
 """
     InfiniteVariable{S, T, U, V} <: InfOptVariable
+
 A DataType for storing core infinite variable information. Note each element of
 the parameter reference tuple must contain either a single
 [`ParameterRef`](@ref) or an `AbstractArray` of `ParameterRef`s where each
@@ -479,6 +575,7 @@ end
 
 """
     PointVariable{S, T, U, V} <: InfOptVariable
+
 A DataType for storing point variable information. Note that the elements
 `parameter_values` field must match the format of the parameter reference tuple
 defined in [`InfiniteVariable`](@ref)
@@ -528,6 +625,7 @@ end
 
 """
     ParameterBounds
+
 A DataType for storing intervaled bounds of parameters. This is used to define
 subdomains of [`HoldVariable`](@ref)s and [`BoundedScalarConstraint`](@ref)s.
 
@@ -549,6 +647,7 @@ end
 
 """
     HoldVariable{S, T, U, V} <: InfOptVariable
+
 A DataType for storing hold variable information.
 
 **Fields**
@@ -561,7 +660,7 @@ struct HoldVariable{S, T, U, V} <: InfOptVariable
 end
 
 """
-    ReducedInfiniteInfo <: AbstractReducedInfo
+    ReducedInfiniteVariable <: AbstractReducedInfo
 
 A DataType for storing reduced infinite variable information.
 
@@ -570,10 +669,61 @@ A DataType for storing reduced infinite variable information.
 - `eval_supports::Dict{Int, Union{Number, JuMP.Containers.SparseAxisArray{<:Number}}}`
   The original parameter tuple indices to the evaluation supports.
 """
-struct ReducedInfiniteInfo <: AbstractReducedInfo
+struct ReducedInfiniteVariable <: AbstractReducedInfo
     infinite_variable_ref::InfiniteVariableRef
-    eval_supports::Dict{Int, Union{Number,
-                                   JuMPC.SparseAxisArray{<:Number}}}
+    eval_supports::Dict{Int, Union{Number, JuMPC.SparseAxisArray{<:Number}}}
+end
+
+"""
+    DerivativeVariable{T <: GeneralVariableRef} <: AbstractDerivativeVariable
+
+A DataType for storing derivative variables which track taking derivatives of
+infinite, reduced infinite, and derivative variables with respect to an infinite
+parameter.
+
+**Fields**
+- `info::JuMP.VariableInfo` JuMP variable information.
+- `variable_ref::T` The dependent variable of the derivative.
+- `parameter_ref::ParameterRef` The parameter that the derivative is with respect to.
+"""
+struct DerivativeVariable{T <: GeneralVariableRef} <: AbstractDerivativeVariable
+    info::JuMP.VariableInfo
+    variable_ref::T
+    parameter_ref::ParameterRef
+end
+
+"""
+    ReducedDerivativeVariable <: AbstractDerivativeVariable
+
+A DataType for storing reduced derivative variable information.
+
+**Fields**
+- `derivative_ref::DerivativeVariableRef` The original derivative variable.
+- `eval_supports::Dict{Int, Union{Number, JuMP.Containers.SparseAxisArray{<:Number}}}`
+  The original parameter tuple indices to the evaluation supports.
+"""
+struct ReducedDerivativeVariable <: AbstractDerivativeVariable
+    derivative_ref::DerivativeVariableRef
+    eval_supports::Dict{Int, Union{Number, JuMPC.SparseAxisArray{<:Number}}}
+end
+
+"""
+    PointDerivativeVariable <: AbstractDerivativeVariable
+
+A DataType for storing point variable information. Note that the elements
+`parameter_values` field must match the format of the parameter reference tuple
+associated with the dependent [`DerivativeVariable`](@ref) object.
+
+**Fields**
+- `info::JuMP.VariableInfo{S, T, U, V}` JuMP Variable information.
+- `derivative_ref::DerivativeVariableRef` The derivative variable associated
+                                               with the point variable.
+- `parameter_values::Tuple` The infinite parameter values defining the point.
+"""
+struct PointDerivativeVariable <: AbstractDerivativeVariable
+    info::JuMP.VariableInfo
+    derivative_ref::DerivativeVariableRef
+    parameter_values::Tuple
 end
 
 """
@@ -586,12 +736,17 @@ const InfOptVariableRef = Union{InfiniteVariableRef, PointVariableRef,
 
 # Define infinite expressions
 const InfiniteExpr = Union{InfiniteVariableRef, ReducedInfiniteVariableRef,
+                           DerivativeVariableRef, ReducedDerivativeVariableRef,
                            JuMP.GenericAffExpr{Float64, InfiniteVariableRef},
                            JuMP.GenericAffExpr{Float64, GeneralVariableRef},
                            JuMP.GenericAffExpr{Float64, ReducedInfiniteVariableRef},
+                           JuMP.GenericAffExpr{Float64, DerivativeVariableRef},
+                           JuMP.GenericAffExpr{Float64, ReducedDerivativeVariableRef},
                            JuMP.GenericQuadExpr{Float64, InfiniteVariableRef},
                            JuMP.GenericQuadExpr{Float64, GeneralVariableRef},
-                           JuMP.GenericQuadExpr{Float64, ReducedInfiniteVariableRef}}
+                           JuMP.GenericQuadExpr{Float64, ReducedInfiniteVariableRef},
+                           JuMP.GenericQuadExpr{Float64, DerivativeVariableRef},
+                           JuMP.GenericQuadExpr{Float64, ReducedDerivativeVariableRef}}
 const ParameterExpr = Union{ParameterRef,
                             JuMP.GenericAffExpr{Float64, ParameterRef},
                             JuMP.GenericQuadExpr{Float64, ParameterRef}}

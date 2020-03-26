@@ -71,7 +71,7 @@ generate_and_add_supports!, generate_support_values
 export InfOptVariable, InfiniteVariable, PointVariable, HoldVariable,
 GeneralVariableRef, InfiniteVariableRef, MeasureFiniteVariableRef,
 FiniteVariableRef, PointVariableRef, HoldVariableRef, InfOptVariableRef,
-ReducedInfiniteVariableRef, AbstractReducedInfo, ReducedInfiniteInfo,
+ReducedInfiniteVariableRef, AbstractReducedInfo, ReducedInfiniteVariable,
 ParameterBounds
 
 # Export variable methods
@@ -97,6 +97,11 @@ export add_measure, measure, measure_function, measure_data, expand,
 expand_all_measures!, expect, support_sum, measure_name, measure_data_in_hold_bounds,
 make_point_variable_ref, make_reduced_variable_ref, expand_measure, integral,
 set_integral_defaults, integral_defaults
+
+# Export derivative datatypes
+export AbstractDerivativeVariable, DerivativeVariableRef, ReducedDerivativeVariableRef,
+PointDerivativeVariableRef, DerivativeVariable, ReducedDerivativeVariable,
+PointDerivativeVariable
 
 # Export transcription datatypes
 export TranscriptionData, TranscriptionModel
