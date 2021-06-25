@@ -1,7 +1,6 @@
-# [Finite Parameters] (@id finite_param_docs)
-A guide and manual to the definition and use of finite parameters in
-`InfiniteOpt`. The Datatypes and Methods sections at the end comprise the manual,
-and the above sections comprise the guide.  
+# [Finite Parameters](@id finite_param_docs)
+A guide for the definition and use of finite parameters in `InfiniteOpt`. See 
+the respective [technical manual](@ref finite_param_manual) for more details.
 
 ## Overview
 Often a mathematical model needs to be optimized several times in accordance
@@ -11,16 +10,19 @@ ability is provided in `InfiniteOpt` via [`@finite_parameter`](@ref) which
 permits users to define finite parameters whose values can later be modified
 as needed. Furthermore, at the optimization step these parameters are replaced
 with their numeric values. Thus, not adding unnecessary decision variables as is
-typically done in `JuMP` models using
-[`JuMP.fix`](@ref JuMP.fix(::JuMP.VariableRef, ::Number)) on placeholder
-variables.  
+typically done in `JuMP` models using `JuMP.fix` on placeholder variables.  
+
+!!! note 
+    The syntax of [`@finite_parameter`](@ref) has changed with from previous 
+    versions for enhanced long term support. Please consult the documentation 
+    below for the updated syntax.
 
 ## Basic Usage
 Once an `InfiniteModel` `model` has been defined we can add a finite parameter
 via [`@finite_parameter`](@ref). For example, let's define a maximum cost
 parameter called `max_cost` with an initial value of `42`:
 ```jldoctest fpar; setup = :(using InfiniteOpt; model = InfiniteModel())
-julia> @finite_parameter(model, max_cost, 42)
+julia> @finite_parameter(model, max_cost == 42)
 max_cost
 ```
 Notice that a `Julia` variable called `max_cost` is returned that contains a
@@ -29,8 +31,8 @@ An array of parameters can also be defined following standard `JuMP` macro synta
 ```jldoctest fpar
 julia> values = [2, 3.2, 1];
 
-julia> @finite_parameter(model, params[i = 1:3], values[i])
-3-element Array{GeneralVariableRef,1}:
+julia> @finite_parameter(model, params[i = 1:3] == values[i])
+3-element Vector{GeneralVariableRef}:
  params[1]
  params[2]
  params[3]
@@ -43,7 +45,7 @@ and constraints just like infinite parameters.
 
 The value of a finite parameter can be checked using
 [`parameter_value`](@ref parameter_value(::FiniteParameterRef)) and can modified using
-[`JuMP.set_value`](@ref JuMP.set_value(::FiniteParameterRef, ::Real)). For example,
+[`set_value`](@ref JuMP.set_value(::FiniteParameterRef, ::Real)). For example,
 let's update the value of `max_cost` to be now be `10.2`:
 ```jldoctest fpar
 julia> parameter_value(max_cost)
@@ -72,27 +74,3 @@ converted into the appropriate affine expression when transcripted.
     use `InfiniteOpt` to model non-infinite-dimensional problems, since the added 
     overhead will make it slower than just iteratively building `JuMP` models. For 
     this behavior, we recommend looking into using `ParameterJuMP`.
-
-## Datatypes
-```@index
-Pages   = ["finite_parameter.md"]
-Modules = [InfiniteOpt]
-Order   = [:type]
-```
-```@docs
-FiniteParameter
-FiniteParameterIndex
-FiniteParameterRef
-```
-
-## Methods/Macros
-```@index
-Pages   = ["finite_parameter.md"]
-Modules = [InfiniteOpt, JuMP]
-Order   = [:macro, :function]
-```
-```@docs
-@finite_parameter
-parameter_value(::FiniteParameterRef)
-JuMP.set_value(::FiniteParameterRef, ::Real)
-```

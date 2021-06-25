@@ -9,44 +9,28 @@ interface for these advanced problem types that can be used by those with little
 to no background in these areas. It also it contains a wealth of capabilities
 making it a powerful and convenient tool for advanced users.  
 
+:warning: **`v0.4` introduced breaking changes**: See the documentation for details.
+
 | **Documentation**                                                               | **Build Status**                                                                                | **Citation** |
 |:-------------------------------------------------------------------------------:|:-----------------------------------------------------------------------------------------------:|:--------------------------------------:|
-| [![](https://img.shields.io/badge/docs-stable-blue.svg)](https://pulsipher.github.io/InfiniteOpt.jl/stable) | [![Build Status](https://api.travis-ci.com/pulsipher/InfiniteOpt.jl.svg?branch=v0.3.2)](https://travis-ci.com/pulsipher/InfiniteOpt.jl) [![Build Status2](https://ci.appveyor.com/api/projects/status/p3srfp3uuvchfg3j/branch/v0.3.2?svg=true)](https://ci.appveyor.com/project/pulsipher/InfiniteOpt-jl) [![codecov.io](https://codecov.io/github/pulsipher/InfiniteOpt.jl/coverage.svg?branch=release-0.3)](https://codecov.io/github/pulsipher/InfiniteOpt.jl?branch=release-0.3) | [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.4291106.svg)](https://doi.org/10.5281/zenodo.4291106) |
+| [![](https://img.shields.io/badge/docs-stable-blue.svg)](https://pulsipher.github.io/InfiniteOpt.jl/stable) | [![Build Status](https://github.com/pulsipher/InfiniteOpt.jl/workflows/CI/badge.svg?branch=release-0.4)](https://github.com/pulsipher/InfiniteOpt.jl/actions?query=workflow%3ACI) [![codecov.io](https://codecov.io/github/pulsipher/InfiniteOpt.jl/coverage.svg?branch=release-0.4)](https://codecov.io/github/pulsipher/InfiniteOpt.jl?branch=release-0.4) | [![DOI](https://img.shields.io/badge/math.OC-arXiv%3A2106.12689-B31B1B.svg)](https://arxiv.org/abs/2106.12689) |
 | [![](https://img.shields.io/badge/docs-dev-blue.svg)](https://pulsipher.github.io/InfiniteOpt.jl/dev) | [![Build Status](https://github.com/pulsipher/InfiniteOpt.jl/workflows/CI/badge.svg?branch=master)](https://github.com/pulsipher/InfiniteOpt.jl/actions?query=workflow%3ACI) [![codecov.io](https://codecov.io/github/pulsipher/InfiniteOpt.jl/coverage.svg?branch=master)](https://codecov.io/github/pulsipher/InfiniteOpt.jl?branch=master) | |
 
-Its capabilities include:
-- `JuMP`-like symbolic macro interface
-- Infinite domain abstractions for parameterization of variables/constraints
-- Finite parameters support and use (similar to `ParameterJuMP`)
-- Direct support of infinite, point, and hold variables
-- Straightforward measure operator definition (e.g., integrals, risk measures)
-- Infinite/finite constraint definition
-- Event constraint definition (e.g., chance constraints)
-- Compact ordinary/partial differential operator expression
-- Efficient automated model transcription/reformulation and solution
-- Compatible with all [JuMP-supported solvers](https://www.juliaopt.org/JuMP.jl/dev/installation/#Getting-Solvers-1)
-- Readily extendable to accommodate user defined abstractions and solution techniques.
+It builds upon `JuMP` to add support for many complex modeling objects which 
+include:
+- Infinite parameters (e.g., time, space, uncertainty, etc.)
+- Finite parameters (similar to `ParameterJuMP`)
+- Infinite variables (e.g., `y(t, x)`)
+- Derivatives (e.g., `∂y(t, x)/∂t`)
+- Measures (e.g., `∫y(t,x)dt`, `𝔼[y(ξ)]`)
+- More
 
-Currently, the following infinite and finite problem types are accepted:
-- Variables
-    - Continuous and semi-continuous
-    - Binary
-    - Integer and semi-integer
-- Derivatives
-    - Ordinary derivative operators (of any order)
-    - Partial derivative operators (of any order)
-- Measures
-    - Univariate and multivariate integrals 
-    - Univariate and multivariate expectations 
-    - Arbitrary measure operators (via general measure API)
-- Objectives
-    - Linear
-    - Quadratic (convex and non-convex)
-    - Higher-order powers (via place holder variables)
-- Constraints
-    - Linear
-    - Quadratic (convex and non-convex)
-    - Higher-order powers (via place holder variables)
+The unifying modeling abstraction behind `InfiniteOpt` captures a wide spectrum 
+of disciplines which include dynamic, PDE, stochastic, and semi-infinite 
+optimization. Moreover, we facilitate transferring techniques between these 
+to synthesize new optimization paradigms!
+
+![abstract](abstraction.gif)
 
 Comments, suggestions and improvements are welcome and appreciated.
 
@@ -61,28 +45,26 @@ following in the package manager.
 (v1.6) pkg> add InfiniteOpt
 ```
 
-## Modeling Infinite-Dimensional Problems with InfiniteOpt.jl
-See our YouTube overview of infinite-dimensional programming and InfiniteOpt.jl's 
-capabilities:
-[![youtube](docs/src/assets/youtube.PNG)](http://www.youtube.com/watch?v=q5ETFLZbxiU "Modeling Infinite-Dimensional Problems with InfiniteOpt.jl")
-
 ## Documentation
 [![](https://img.shields.io/badge/docs-stable-blue.svg)](https://pulsipher.github.io/InfiniteOpt.jl/stable)
 
-Please visit our [documentation pages](https://pulsipher.github.io/InfiniteOpt.jl/stable) to learn more. These pages are quite extensive and feature overviews, guides, manuals,
-tutorials, examples, and more!
+Please visit our [documentation pages](https://pulsipher.github.io/InfiniteOpt.jl/stable) 
+to learn more. These pages are quite extensive and feature overviews, guides,
+manuals, tutorials, examples, and more!
 
 ## Citing
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.4291106.svg)](https://doi.org/10.5281/zenodo.4291106)
+[![DOI](https://img.shields.io/badge/math.OC-arXiv%3A2106.12689-B31B1B.svg)](https://arxiv.org/abs/2106.12689)
 
-If you use InfiniteOpt.jl in your research, we would greatly appreciate your citing it.
+If you use InfiniteOpt.jl in your research, we would greatly appreciate your 
+citing it.
 ```latex
-@misc{pulsipher20,
-  author       = {J. Pulsipher and W. Zhang and V. Zavala},
-  title        = {InfiniteOpt.jl -- A Julia package for modeling infinite-dimensional optimization problems},
-  year         = 2020,
-  doi          = {10.5281/zenodo.4291106},
-  url          = {https://doi.org/10.5281/zenodo.4291106}
+@misc{pulsipher2021unifying,
+      title={A Unifying Modeling Abstraction for Infinite-Dimensional Optimization}, 
+      author={Joshua L. Pulsipher and Weiqi Zhang and Tyler J. Hongisto and Victor M. Zavala},
+      year={2021},
+      eprint={2106.12689},
+      archivePrefix={arXiv},
+      primaryClass={math.OC}
 }
 ```
 

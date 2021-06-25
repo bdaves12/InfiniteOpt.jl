@@ -19,6 +19,13 @@ macro test_macro_throws(errortype, m)
     :(@test_throws $errortype try @eval $m catch err; throw(err.error) end)
 end
 
+# Make macro for container construction testing 
+macro gen_container(expr, vals)
+    idxvars, inds = InfiniteOpt._build_ref_sets(error, expr)
+    code = JuMPC.container_code(idxvars, inds, esc(vals), :Auto)
+    return code
+end
+
 # Define test data structures
 struct BadDomain <: AbstractInfiniteDomain end
 struct BadScalarDomain <: InfiniteScalarDomain end
@@ -39,6 +46,16 @@ struct TestVariableRef <: DispatchVariableRef
     index::TestIndex
 end
 InfiniteOpt.dispatch_variable_ref(m::InfiniteModel, i::TestIndex) = TestVariableRef(m, i)
+
+struct TestIndex2 <: ObjectIndex
+    value::Int
+end
+struct TestVariableRef2 <: DispatchVariableRef
+    model::InfiniteModel
+    index::TestIndex2
+end
+InfiniteOpt.dispatch_variable_ref(m::InfiniteModel, i::TestIndex2) = TestVariableRef2(m, i)
+JuMP.name(::TestVariableRef2) = "test"
 
 InfiniteOpt.support_label(::TestGenMethod) = InternalLabel
 
@@ -94,15 +111,6 @@ struct TestData{P, A} <: AbstractMeasureData
     ub::A
 end
 InfiniteOpt.parameter_refs(d::TestData) = d.pref
-function InfiniteOpt.measure_data_in_finite_var_bounds(d::TestData,
-    bounds::ParameterBounds{GeneralVariableRef}
-    )::Bool
-    pref = parameter_refs(d)
-    if haskey(bounds, pref)
-        return d.lb >= lower_bound(bounds[pref]) && d.ub <= upper_bound(bounds[pref])
-    end
-    return true
-end
 function InfiniteOpt.add_supports_to_parameters(d::TestData)::Nothing
     return
 end

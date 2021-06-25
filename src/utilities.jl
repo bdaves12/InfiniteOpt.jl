@@ -21,55 +21,6 @@ end
 _keys(a::JuMPC.SparseAxisArray) = keys(a.data)
 _keys(a::AbstractArray) = keys(a)
 
-# Tempororay hack for map of DenseAxisArray
-function Base.map(f, a::JuMPC.DenseAxisArray)
-    data = map(f, a.data)
-    return JuMPC.DenseAxisArray(data, axes(a)...)
-end
-
-## Define functions to convert a JuMP array into a vector (need for @BDconstraint)
-# AbstractArray
-function _make_vector(arr::AbstractArray{T})::Vector{T} where {T}
-    if isempty(arr)
-        return T[]
-    else
-        return reduce(vcat, arr)
-    end
-end
-
-# Array (do nothing)
-function _make_vector(arr::Vector{T})::Vector{T} where {T}
-    return arr
-end
-
-## Define function to vectorize abstractarrays in a consistent way
-# Vector
-function _make_ordered_vector(
-    arr::Vector{T}
-    )::Vector{T} where {T}
-    return arr
-end
-
-# Array
-function _make_ordered_vector(
-    arr::Union{Array{T}, JuMPC.DenseAxisArray{T}}
-    )::Vector{T} where{T}
-    return reduce(vcat, arr)
-end
-
-# SparseAxisArray
-function _make_ordered_vector(
-    arr::JuMPC.SparseAxisArray{T}
-    )::Vector{T} where {T}
-    indices = Collections._get_indices(arr)
-    return Collections._make_ordered(arr, indices)
-end
-
-# Fallback 
-function _make_ordered_vector(x::T)::T where {T}
-    return x
-end
-
 ## Define efficient function to check if all elements in array are equal
 # method found at https://stackoverflow.com/questions/47564825/check-if-all-the-elements-of-a-julia-array-are-equal/47578613
 @inline function _allequal(x::AbstractArray)::Bool
@@ -79,6 +30,19 @@ end
         value == e1 || return false
     end
     return true
+end
+
+# Extend comparison for JuMP.VariableInfo 
+function Base.:(==)(info1::JuMP.VariableInfo, info2::JuMP.VariableInfo)::Bool 
+    return info1.has_lb == info2.has_lb && 
+           (!info1.has_lb || info1.lower_bound == info2.lower_bound) && 
+           info1.has_ub == info2.has_ub && 
+           (!info1.has_ub || info1.upper_bound == info2.upper_bound) && 
+           info1.has_fix == info2.has_fix && 
+           (!info1.has_fix || info1.fixed_value == info2.fixed_value) && 
+           info1.has_start == info2.has_start && 
+           (!info1.has_start || info1.start == info2.start) && 
+           info1.binary == info2.binary && info1.integer == info2.integer
 end
 
 ## Convert JuMP variable info to only use Float64

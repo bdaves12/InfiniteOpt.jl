@@ -2,28 +2,30 @@
 #                          PARAMETER FUNCTION METHODS
 ################################################################################
 # Extend dispatch_variable_ref
-function dispatch_variable_ref(model::InfiniteModel,
-                               index::ParameterFunctionIndex
-                               )::ParameterFunctionRef
+function dispatch_variable_ref(
+    model::InfiniteModel,
+    index::ParameterFunctionIndex
+    )::ParameterFunctionRef
     return ParameterFunctionRef(model, index)
 end
 
 # Extend _add_data_object
-function _add_data_object(model::InfiniteModel,
-                          object::ParameterFunctionData
-                          )::ParameterFunctionIndex
+function _add_data_object(
+    model::InfiniteModel,
+    object::ParameterFunctionData
+    )::ParameterFunctionIndex
     return MOIUC.add_item(model.param_functions, object)
 end
 
 # Extend _data_dictionary (reference based)
-function _data_dictionary(fref::ParameterFunctionRef
+function _data_dictionary(
+    fref::ParameterFunctionRef
     )::MOIUC.CleverDict{ParameterFunctionIndex, ParameterFunctionData{<:ParameterFunction}}
     return JuMP.owner_model(fref).param_functions
 end
 
 # Extend _data_object
-function _data_object(fref::ParameterFunctionRef
-    )::ParameterFunctionData
+function _data_object(fref::ParameterFunctionRef)
   object = get(_data_dictionary(fref), JuMP.index(fref), nothing)
   object === nothing && error("Invalid parameter function reference, cannot find " *
                               "corresponding object in the model. This is likely " *
@@ -32,8 +34,7 @@ function _data_object(fref::ParameterFunctionRef
 end
 
 # Extend _core_variable_object
-function _core_variable_object(fref::ParameterFunctionRef
-    )::ParameterFunction
+function _core_variable_object(fref::ParameterFunctionRef)
     return _data_object(fref).func
 end
 
@@ -47,86 +48,11 @@ function _parameter_numbers(fref::ParameterFunctionRef)::Vector{Int}
     return _core_variable_object(fref).parameter_nums
 end
 
-## Helper methods for building parameter functions 
-# Process the default name argument
-function _process_default_name(name::String, func::Function, fargs, fkwargs)::String 
-    return name
-end
-function _process_default_name(name::Nothing, func::Function, fargs::Nothing, 
-                               fkwargs::Nothing)::String
-    return String(nameof(func))
-end
-function _process_default_name(name::Nothing, func::Function, fargs, fkwargs)::String
-    return String(nameof(func)) # TODO do something to consider fargs and fkwargs
-end
-
-# Process the parameter function with additional arguments 
-function _process_parameter_func(_error::Function, func::Function, fargs::Nothing, 
-                                 fkwargs::Nothing, prefs)
-    # check the func is valid
-    supp_type = typeof(Tuple(Vector{Float64}(undef, length(prefs)), prefs))
-    if !hasmethod(func, supp_type)
-        _error("Parameter function method `$(func)` is not defined for `$(func)(" * 
-               join(Tuple(prefs), ", ") * ")`. Note that the infinite parameter " * 
-               "arguments `" * join(Tuple(prefs), ", ") * "` are checked via a " * 
-               "numeric support (each parameter is a `Float64`) of the same format.")
-    end         
-    return func
-end
-function _process_parameter_func(_error::Function, func::Function, fargs::Tuple, 
-                                 fkwargs::NamedTuple, prefs)
-    # check the func is valid
-    supp = Tuple(Vector{Float64}(undef, length(prefs)), prefs)
-    if Base.VERSION >= v"1.2.0" && !hasmethod(func, typeof((supp..., fargs...)), keys(fkwargs))
-        _error("Parameter function method `$(func)` is not defined for `$(func)(" * 
-               join(Tuple(prefs), ", ") * ", " * join(fargs, ", ") * "; " * 
-               _kwargs2string(fkwargs) * ")`. Note that the infinite parameter " * 
-               "arguments `" * join(Tuple(prefs), ", ") * "` are checked via a " * 
-               "numeric support (each parameter is a `Float64`) of the same format.")
-    end
-    # make a wrapper function
-    len = size(prefs, 1)
-    return @eval (s::Vararg{Any, $len}) -> $(func)(s..., $(fargs)...; $(fkwargs)...)
-end
-function _process_parameter_func(_error::Function, func::Function, fargs::Nothing, 
-                                 fkwargs::NamedTuple, prefs)
-    # check the func is valid
-    supp_type = typeof(Tuple(Vector{Float64}(undef, length(prefs)), prefs))
-    if Base.VERSION >= v"1.2.0" && !hasmethod(func, supp_type, keys(fkwargs))
-        _error("Parameter function method `$(func)` is not defined for `$(func)(" * 
-               join(Tuple(prefs), ", ") * "; " * _kwargs2string(fkwargs) * ")`. Note " * 
-               "that the infinite parameter arguments `" * join(Tuple(prefs), ", ") * 
-               "` are checked via a numeric support (each parameter is a " * 
-               "`Float64`) of the same format.")
-    end
-    # make a wrapper function
-    len = size(prefs, 1)
-    return @eval (s::Vararg{Any, $len}) -> $(func)(s...; $(fkwargs)...)
-end
-function _process_parameter_func(_error::Function, func::Function, fargs::Tuple, 
-                                 fkwargs::Nothing, prefs)
-    # check the func is valid
-    supp = Tuple(Vector{Float64}(undef, length(prefs)), prefs)
-    if !hasmethod(func, typeof((supp..., fargs...)))
-        _error("Parameter function method `$(func)` is not defined for `$(func)(" * 
-               join(Tuple(prefs), ", ") * ", " * join(fargs, ", ") * ")`. Note " * 
-               "that the infinite parameter arguments `" * join(Tuple(prefs), ", ") * 
-               "` are checked via a numeric support (each parameter is a " * 
-               "`Float64`) of the same format.")
-    end
-    # make a wrapper function
-    len = size(prefs, 1)
-    return @eval (s::Vararg{Any, $len}) -> $(func)(s..., $(fargs)...)
-end
-
 """
     build_parameter_function(
         _error::Function, 
         func::Function, 
-        parameter_refs::Union{GeneralVariableRef, AbstractArray{<:GeneralVariableRef}, Tuple};
-        [func_args::Union{Tuple, Nothing} = nothing,
-        func_kwargs::Union{NamedTuple, Nothing} = nothing,
-        default_name::Union{String, Nothing} = nothing]
+        parameter_refs::Union{GeneralVariableRef, AbstractArray{<:GeneralVariableRef}, Tuple}
         )::ParameterFunction
 
 Build an [`ParameterFunction`](@ref) object that employs a parameter function 
@@ -136,44 +62,41 @@ behavior and/or incorporate data over infinite domains.
 
 Here `func` should be of the form:
 ```
-func(paramvals..., func_args...; func_kwargs...)::Float64
+func(paramvals...)::Float64
 ```
 where the formatting of `paramvals` is analagous to point variables (and will be 
-based on the tuple of infinite parameter references given in `parameter_refs`), 
-extra positional arguments can be given via `fun_args`, and keyword arguments can 
-be  given via `func_kwargs`. Moreover, `func` must be a function that returns a 
-scalar numeric value. 
+based on the tuple of infinite parameter references given in `parameter_refs`). 
 
-Errors if the infinite parameter tuple is formatted incorrectly. The allowed format 
-follows that of infinite variables. Also errors if the function doesn't accept 
-a support realization of the `parameter_refs` as input.
+Errors if the infinite parameter tuple is formatted incorrectly. The allowed 
+format follows that of infinite variables. Also errors if the function doesn't 
+accept a support realization of the `parameter_refs` as input.
 
 **Example**
 ```julia-repl 
-julia> f = build_parameter_function(error, sin, t)
-ParameterFunction{typeof(sin),GeneralVariableRef}(sin, (t,), [1], [1], "sin")
+julia> f = build_parameter_function(error, sin, t);
 ```
 """
 function build_parameter_function(
     _error::Function, 
     func::Function, 
     parameter_refs::Union{GeneralVariableRef, AbstractArray{<:GeneralVariableRef}, Tuple};
-    func_args::Union{Tuple, Nothing} = nothing,
-    func_kwargs::Union{NamedTuple, Nothing} = nothing,
-    default_name::Union{String, Nothing} = nothing,
     extra_kwargs...
-    )::ParameterFunction
+    )
     # check for unneeded keywords
     for (kwarg, _) in extra_kwargs
         _error("Keyword argument $kwarg is not for use with parameter functions.")
     end
     # process the parameter reference inputs and check
-    prefs = VectorTuple(parameter_refs)
+    prefs = Collections.VectorTuple(parameter_refs)
     _check_parameter_tuple(_error, prefs)
-    # process the default name 
-    default_name = _process_default_name(default_name, func, func_args, func_kwargs)
-    # process the function and check
-    func = _process_parameter_func(_error, func, func_args, func_kwargs, prefs)
+    # check the function
+    supp_type = typeof(Tuple(Vector{Float64}(undef, length(prefs)), prefs))
+    if !hasmethod(func, supp_type)
+        _error("Parameter function method `$(func)` is not defined for `$(func)(",
+               join(Tuple(prefs), ", ") * ")`. Note that the infinite parameter ",
+               "arguments `" * join(Tuple(prefs), ", ") * "` are checked via a ",
+               "numeric support (each parameter is a `Float64`) of the same format.")
+    end  
     # get the parameter object numbers
     object_nums = Int[]
     for pref in prefs 
@@ -182,7 +105,7 @@ function build_parameter_function(
     # get the parameter numbers 
     param_nums = [_parameter_number(pref) for pref in prefs]
     # make the variable and return
-    return ParameterFunction(func, prefs, object_nums, param_nums, default_name)
+    return ParameterFunction(func, prefs, object_nums, param_nums)
 end 
 
 # Fallback for weird macro inputs
@@ -192,8 +115,10 @@ function build_parameter_function(_error::Function, func, prefs; kwargs...)
 end 
 
 # Used to update parameter-parameter function mappings
-function _update_param_var_mapping(fref::ParameterFunctionRef,
-                                   prefs::VectorTuple)::Nothing
+function _update_param_var_mapping(
+    fref::ParameterFunctionRef,
+    prefs::Collections.VectorTuple
+    )::Nothing
     for pref in prefs
         dependency_list = _parameter_function_dependencies(pref)
         if !(JuMP.index(fref) in dependency_list)
@@ -205,25 +130,25 @@ end
 
 """
     add_parameter_function(model::InfiniteModel, pfunc::ParameterFunction, 
-                           [name::String = pfunc.default_name])::GeneralVariableRef
+                           [name::String])::GeneralVariableRef
 
 Add an [`ParameterFunction`](@ref) `pfunc` to the `model` using `name` for 
 printing and return a `GeneralVariableRef` such that it can be embedded in 
-expressions. Errors if the infinite parameters `pfunc` points to do not belong to 
+expressions. Errors if the parameter function `pfunc` points to do not belong to 
 `model`. Note that `pfunc` should be created using [`build_parameter_function`](@ref).
 
 **Example**
 ```julia-repl
 julia> f = build_parameter_function(error, sin, t);
 
-julia> fref = add_parameter_function(model, f, "sin")
+julia> fref = add_parameter_function(model, f)
 sin(t)
 ```
 """
 function add_parameter_function(
     model::InfiniteModel, 
     pfunc::ParameterFunction, 
-    name::String = pfunc.default_name
+    name::String = String(nameof(pfunc.func))
     )::GeneralVariableRef
     _check_parameters_valid(model, pfunc.parameter_refs)
     data_object = ParameterFunctionData(pfunc, name)
@@ -236,8 +161,7 @@ end
 """
     JuMP.name(fref::ParameterFunctionRef)::String
 
-Extend [`JuMP.name`](@ref JuMP.name(::JuMP.VariableRef)) to return the base name of
-`fref`.
+Extend `JuMP.name` to return the base name of `fref`.
 
 **Example**
 ```julia-repl
@@ -253,8 +177,7 @@ end
 """
     JuMP.set_name(fref::ParameterFunctionRef, name::String)::Nothing
 
-Extend [`JuMP.set_name`](@ref JuMP.set_name(::JuMP.VariableRef, ::String)) to set
-names of infinite parameter functions.
+Extend `JuMP.set_name` to set the name of a parameter function.
 
 **Example**
 ```julia-repl
@@ -269,23 +192,13 @@ function JuMP.set_name(fref::ParameterFunctionRef, name::String)::Nothing
     return
 end
 
-# Helper function choosing the name
-function _select_name(name::Nothing, default_name::String)::String
-    return default_name 
-end
-function _select_name(name::String, default_name::String)::String
-    return name 
-end
-
 """
     parameter_function(func::Function, 
                        pref_inputs::Union{GeneralVariableRef, AbstractArray{GeneralVariableRef}, Tuple}; 
-                       [name::String = [the name of `func`],
-                       func_args::Union{Tuple, Nothing} = nothing,
-                       func_kwargs::Union{NameTuple, Nothing} = nothing]
+                       [name::String = [the name of `func`]]
                        )::GeneralVariableRef
 
-Make an infinite parameter function and return a `GeneralVariableRef` that can be 
+Make a parameter function and return a `GeneralVariableRef` that can be 
 embedded in InfiniteOpt expressions. This serves as a convenient wrapper for 
 [`build_parameter_function`](@ref) and [`add_parameter_function`](@ref). For an 
 even more convenient definition method see [`@parameter_function`](@ref).
@@ -294,13 +207,11 @@ Here `func` denotes the function that will take a support of infinite parameters
 input (formatted like `pref_inputs`) and will return a scalar value. Specifically, 
 `func` should be of the form:
 ```
-func(paramvals..., func_args...; func_kwargs...)::Float64
+func(paramvals...)::Float64
 ```
 where the formatting of `paramvals` is analagous to point variables (and will be 
-based on the tuple of infinite parameter references given in `parameter_refs`), 
-extra positional arguments can be given via `fun_args`, and keyword arguments can 
-be  given via `func_kwargs`. Moreover, `func` must be a function that returns a 
-scalar numeric value. 
+based on the tuple of infinite parameter references given in `parameter_refs`).
+Moreover, `func` must be a function that returns a scalar numeric value. 
 
 Errors if `func` will not take a support formatted like `pref_inputs` in 
 combination with the `fargs` and `fkwargs` specified. Also errors if `pref_inputs` 
@@ -310,12 +221,6 @@ follow an invalid input format.
 ```julia-repl 
 julia> p_func = parameter_function(sin, t)
 sin(t)
-
-julia> mysin(t_supp, a; b = 1) = a * sin(b * t_supp)
-mysin (generic function with 1 method)
-
-julia> p_func2 = parameter_function(mysin, t, func_args = (2,), func_kwargs = (b = 2,))
-mysin(t)
 
 julia> p_func3 = parameter_function((t_supp) -> 2 * sin(2 * t_supp), t, name = "mysin")
 mysin(t)
@@ -334,25 +239,22 @@ mysin(t)
 function parameter_function(
     func::Function, 
     pref_inputs; 
-    name::Union{String, Nothing} = nothing,
-    func_args::Union{Tuple, Nothing} = nothing,
-    func_kwargs::Union{NamedTuple, Nothing} = nothing
+    name::String = String(nameof(func))
     )::GeneralVariableRef
-    f = build_parameter_function(error, func, pref_inputs, func_args = func_args, 
-                                 func_kwargs = func_kwargs)
+    f = build_parameter_function(error, func, pref_inputs)
     model = JuMP.owner_model(first(f.parameter_refs))
-    return add_parameter_function(model, f, _select_name(name, f.default_name))
+    return add_parameter_function(model, f, name)
 end
 
 """
-    raw_parameter_refs(fref::ParameterFunctionRef)::VectorTuple{GeneralVariableRef}
+    raw_parameter_refs(fref::ParameterFunctionRef)::VectorTuple
 
-Return the raw [`VectorTuple`](@ref) of the parameter references that `fref`
-depends on. This is primarily an internal method where
-[`parameter_refs`](@ref parameter_refs(::ParameterFunctionRef))
+Return the raw [`VectorTuple`](@ref InfiniteOpt.Collections.VectorTuple) of the 
+parameter references that `fref` depends on. This is primarily an internal method 
+where [`parameter_refs`](@ref parameter_refs(::ParameterFunctionRef)) 
 is intended as the preferred user function.
 """
-function raw_parameter_refs(fref::ParameterFunctionRef)::VectorTuple{GeneralVariableRef}
+function raw_parameter_refs(fref::ParameterFunctionRef)
     return _core_variable_object(fref).parameter_refs 
 end
 
@@ -369,7 +271,7 @@ julia> parameter_refs(p_func)
 (t,)
 ```
 """
-function parameter_refs(fref::ParameterFunctionRef)::Tuple
+function parameter_refs(fref::ParameterFunctionRef)
     return Tuple(raw_parameter_refs(fref))
 end
 
@@ -390,7 +292,7 @@ end
 Returns the raw function behind `fref` that takes a particular support of `fref`'s 
 infinite parameters as input. 
 """
-function raw_function(fref::ParameterFunctionRef)::Function
+function raw_function(fref::ParameterFunctionRef)
     return _core_variable_object(fref).func
 end
 
@@ -399,14 +301,11 @@ end
 
 Safely evaluates the [`raw_function`](@ref) of `fref` at a particular support `support`
 point that matches the format of the infinite parameter tuple given when the `fref` 
-was defined. This is essentially equivalent to `raw_function(fref)(supps...)` 
-except it properly handles the "world" of internally generated functions to prevent 
-world age errors. 
+was defined. This is essentially equivalent to `raw_function(fref)(supps...)`. 
 """
 function call_function(fref::ParameterFunctionRef, supps...)::Float64
     pfunc = _core_variable_object(fref)
-    func = pfunc.func 
-    return Base.invokelatest(func, supps...)
+    return pfunc.func(supps...)
 end
 
 # Extend _semi_infinite_variable_dependencies
@@ -429,7 +328,9 @@ function _measure_dependencies(fref::ParameterFunctionRef)::Vector{MeasureIndex}
 end
 
 # Extend _constraint_dependencies
-function _constraint_dependencies(fref::ParameterFunctionRef)::Vector{ConstraintIndex}
+function _constraint_dependencies(
+    fref::ParameterFunctionRef
+    )::Vector{InfOptConstraintIndex}
     return _data_object(fref).constraint_indices
 end
 
@@ -512,12 +413,12 @@ end
 """
     JuMP.delete(model::InfiniteModel, fref::ParameterFunctionRef)::Nothing
 
-Extend [`JuMP.delete`](@ref JuMP.delete(::JuMP.Model, ::JuMP.VariableRef)) to delete
-infinite parameter functions and their dependencies. Errors if `fref` is invalid,
-meaning it has already been deleted or it belongs to another model.
+Extend `JuMP.delete` to delete parameter functions and their dependencies. Errors 
+if `fref` is invalid, meaning it has already been deleted or it belongs to 
+another model.
 """
 function JuMP.delete(model::InfiniteModel, fref::ParameterFunctionRef)::Nothing 
-    @assert JuMP.is_valid(model, fref) "Infinite parameter function is invalid."
+    @assert JuMP.is_valid(model, fref) "Parameter function is invalid."
     # update the optimizer model status
     if is_used(fref)
         set_optimizer_model_ready(model, false)
@@ -552,7 +453,7 @@ function JuMP.delete(model::InfiniteModel, fref::ParameterFunctionRef)::Nothing
     end
     # remove from constraints if used
     for cindex in _constraint_dependencies(fref)
-        cref = _temp_constraint_ref(model, cindex)
+        cref = _make_constraint_ref(model, cindex)
         func = JuMP.jump_function(JuMP.constraint_object(cref))
         if func isa GeneralVariableRef
             set = JuMP.moi_set(JuMP.constraint_object(cref))
@@ -560,6 +461,8 @@ function JuMP.delete(model::InfiniteModel, fref::ParameterFunctionRef)::Nothing
             new_constr = JuMP.ScalarConstraint(new_func, set)
             _set_core_constraint_object(cref, new_constr)
             empty!(_object_numbers(cref))
+        elseif func isa AbstractArray{GeneralVariableRef}
+            JuMP.delete(model, cref)
         else
             _remove_variable(func, gvref)
             _data_object(cref).object_nums = sort(_object_numbers(func))
@@ -628,6 +531,18 @@ function _all_function_variables(
     end
     return collect(vref_set)
 end
+
+# Array of expressions 
+function _all_function_variables(
+    arr::AbstractArray
+    )::Vector{GeneralVariableRef}
+    vref_set = Set{GeneralVariableRef}()
+    for f in arr 
+        union!(vref_set, _all_function_variables(f))
+    end
+    return collect(vref_set)
+end
+
 
 # Fallback
 function _all_function_variables(f)
@@ -721,7 +636,9 @@ function _model_from_expr(expr::GeneralVariableRef)::InfiniteModel
 end
 
 # AffExpr
-function _model_from_expr(expr::JuMP.GenericAffExpr)::Union{InfiniteModel, Nothing}
+function _model_from_expr(
+    expr::JuMP.GenericAffExpr
+    )::Union{InfiniteModel, Nothing}
     if isempty(expr.terms)
         return
     else
@@ -730,7 +647,9 @@ function _model_from_expr(expr::JuMP.GenericAffExpr)::Union{InfiniteModel, Nothi
 end
 
 # QuadExpr
-function _model_from_expr(expr::JuMP.GenericQuadExpr)::Union{InfiniteModel, Nothing}
+function _model_from_expr(
+    expr::JuMP.GenericQuadExpr
+    )::Union{InfiniteModel, Nothing}
     result = _model_from_expr(expr.aff)
     if result !== nothing
         return result
@@ -742,7 +661,9 @@ function _model_from_expr(expr::JuMP.GenericQuadExpr)::Union{InfiniteModel, Noth
 end
 
 # Vector{GeneralVariableRef}
-function _model_from_expr(vrefs::Vector{GeneralVariableRef})::Union{InfiniteModel, Nothing}
+function _model_from_expr(
+    vrefs::Vector{GeneralVariableRef}
+    )::Union{InfiniteModel, Nothing}
     if isempty(vrefs)
         return
     else
@@ -760,8 +681,10 @@ end
 ################################################################################
 ## Delete variables from an expression
 # GenericAffExpr
-function _remove_variable(f::JuMP.GenericAffExpr,
-                          vref::GeneralVariableRef)::Nothing
+function _remove_variable(
+    f::JuMP.GenericAffExpr,
+    vref::GeneralVariableRef
+    )::Nothing
     if haskey(f.terms, vref)
         delete!(f.terms, vref)
     end
@@ -769,10 +692,12 @@ function _remove_variable(f::JuMP.GenericAffExpr,
 end
 
 # GenericQuadExpr
-function _remove_variable(f::JuMP.GenericQuadExpr,
-                          vref::GeneralVariableRef)::Nothing
+function _remove_variable(
+    f::JuMP.GenericQuadExpr,
+    vref::GeneralVariableRef
+    )::Nothing
     _remove_variable(f.aff, vref)
-    for (pair, coef) in f.terms # TODO should we preserve non-vref in pair? --> this would differ from JuMP
+    for (pair, coef) in f.terms
         if pair.a == vref || pair.b == vref
             delete!(f.terms, pair)
         end
@@ -780,8 +705,19 @@ function _remove_variable(f::JuMP.GenericQuadExpr,
     return
 end
 
+# AbstractArray 
+function _remove_variable(
+    arr::AbstractArray,
+    vref::GeneralVariableRef
+    )::Nothing
+    for f in arr
+        _remove_variable(f, vref)
+    end
+    return
+end
+
 ################################################################################
-#                         COEFFICIENT MODIFICATION METHODS
+#                             COEFFICIENT METHODS
 ################################################################################
 ## Modify linear coefficient of variable in expression
 # GeneralVariableRef
@@ -830,6 +766,36 @@ function _set_variable_coefficient!(expr, var::GeneralVariableRef, coeff::Real)
     error("Unsupported function type for coefficient modification.")
 end
 
+## Query the coefficient of a variable 
+# GeneralVariableRef 
+function _affine_coefficient(
+    func::GeneralVariableRef, 
+    var::GeneralVariableRef
+    )::Float64 
+    return func == var ? 1.0 : 0.0
+end
+
+# GenericAffExpr
+function _affine_coefficient(
+    func::GenericAffExpr, 
+    var::GeneralVariableRef
+    )::Float64 
+    return get(func.terms, var, 0.0)
+end
+
+# GenericQuadExpr
+function _affine_coefficient(
+    func::GenericQuadExpr, 
+    var::GeneralVariableRef
+    )::Float64 
+    return get(func.aff.terms, var, 0.0)
+end
+
+# Fallback 
+function _affine_coefficient(func, var::GeneralVariableRef)
+    error("Unsupported function type for coefficient queries.")
+end
+
 ################################################################################
 #                         PARAMETER REFERENCE METHODS
 ################################################################################
@@ -854,7 +820,7 @@ end
 """
     parameter_refs(expr)::Tuple
 
-Return the tuple of infinite parameter references that determine the infinite
+Return the tuple of parameter references that determine the infinite
 dependencies of `expr`.
 
 **Example**
@@ -863,7 +829,9 @@ julia> parameter_refs(my_expr)
 (t,)
 ```
 """
-function parameter_refs(expr::Union{JuMP.GenericAffExpr, JuMP.GenericQuadExpr})::Tuple
+function parameter_refs(
+    expr::Union{JuMP.GenericAffExpr, JuMP.GenericQuadExpr}
+    )::Tuple
     model = _model_from_expr(expr)
     if model === nothing
         return ()

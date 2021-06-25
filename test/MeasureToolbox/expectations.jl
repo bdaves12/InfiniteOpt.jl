@@ -1,7 +1,7 @@
 @testset "Internal Methods" begin
     m = InfiniteModel()
-    @infinite_parameter(m, x in Normal())
-    @infinite_parameter(m, xi[1:2] in MvNormal(ones(2), [1. 0.; 0. 2.]))
+    @infinite_parameter(m, x ~ Normal())
+    @infinite_parameter(m, xi[1:2] ~ MvNormal(ones(2), [1. 0.; 0. 2.]))
     domain1 = UniDistributionDomain(Normal())
     domain2 = MultiDistributionDomain(MvNormal(ones(2), [1. 0.; 0. 2.]))
     domain3 = CollectionDomain([domain1, domain1])
@@ -39,10 +39,10 @@ end
 @testset "Expect" begin
     # Setup the model
     m = InfiniteModel()
-    @infinite_parameter(m, x in Normal())
-    @infinite_parameter(m, xi[1:2] in MvNormal(ones(2), [1. 0.; 0. 2.]))
+    @infinite_parameter(m, x ~ Normal())
+    @infinite_parameter(m, xi[1:2] ~ MvNormal(ones(2), [1. 0.; 0. 2.]))
     @infinite_parameter(m, y in [0, 1])
-    @infinite_variable(m, inf(x, xi, y))
+    @variable(m, inf, Infinite(x, xi, y))
 
     # Test normal usage
     @test InfiniteOpt._index_type(expect(inf, x)) == MeasureIndex
@@ -61,9 +61,9 @@ end
 @testset "Macro" begin
     # Setup the model
     m = InfiniteModel()
-    @infinite_parameter(m, x in Normal())
-    @infinite_parameter(m, xi[1:2] in MvNormal(ones(2), [1. 0.; 0. 2.]))
-    @infinite_variable(m, inf(x, xi))
+    @infinite_parameter(m, x ~ Normal())
+    @infinite_parameter(m, xi[1:2] ~ MvNormal(ones(2), [1. 0.; 0. 2.]))
+    @variable(m, inf, Infinite(x, xi))
 
     # Test normal usage
     @test InfiniteOpt._index_type(@expect(inf, x)) == MeasureIndex

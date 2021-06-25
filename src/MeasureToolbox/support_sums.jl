@@ -20,7 +20,7 @@ single variable reference.
 julia> @infinite_parameter(model, x in [0, 1], supports = [0.3, 0.7])
 x
 
-julia> @infinite_variable(model, f(x))
+julia> @variable(model, f, Infinite(x))
 f(x)
 
 julia> meas = support_sum(f, x)
@@ -30,14 +30,15 @@ julia> expand(meas)
 f(0.3) + f(0.7)
 ```
 """
-function support_sum(expr::JuMP.AbstractJuMPScalar,
+function support_sum(
+    expr::JuMP.AbstractJuMPScalar,
     prefs::Union{InfiniteOpt.GeneralVariableRef, AbstractArray{InfiniteOpt.GeneralVariableRef}};
     label = InfiniteOpt.All
     )::InfiniteOpt.GeneralVariableRef
     # make the data
-    ordered_prefs = InfiniteOpt._make_ordered_vector(prefs)
-    length(prefs) == 1 ? bounds = NaN : bounds = map(e -> NaN, ordered_prefs)
-    data = InfiniteOpt.FunctionalDiscreteMeasureData(ordered_prefs, _support_sum_coeffs,
+    vect_prefs = InfiniteOpt.Collections.vectorize(prefs)
+    length(prefs) == 1 ? bounds = NaN : bounds = map(e -> NaN, vect_prefs)
+    data = InfiniteOpt.FunctionalDiscreteMeasureData(vect_prefs, _support_sum_coeffs,
                                                      0, label,
                                                      InfiniteOpt.NoGenerativeSupports(),
                                                      InfiniteOpt.default_weight,
@@ -58,12 +59,12 @@ more information.
 macro support_sum(expr, prefs, args...)
     _error(str...) = InfiniteOpt._macro_error(:support_sum, (expr, prefs, args...), 
                                               str...)
-    extra, kw_args, requestedcontainer = InfiniteOpt._extract_kw_args(args)
+    extra, kwargs, _, _ = InfiniteOpt._extract_kwargs(args)
     if length(extra) > 0
         _error("Unexpected positional arguments." *
                "Must be of form @support_sum(expr, prefs, kwargs...).")
     end
     expression = :( JuMP.@expression(InfiniteOpt._Model, $expr) )
-    mref = :( support_sum($expression, $prefs; ($(kw_args...))) )
+    mref = :( support_sum($expression, $prefs; ($(kwargs...))) )
     return esc(mref)
 end

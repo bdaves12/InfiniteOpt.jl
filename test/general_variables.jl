@@ -36,9 +36,9 @@
     end
     # test _remove_name_index
     @testset "_remove_name_index" begin
-        pref = @independent_parameter(m, test, domain = IntervalDomain(0, 1))
-        pref2 = @independent_parameter(m, θ, domain = IntervalDomain(0, 1))
-        prefs = @independent_parameter(m, x[1:2], domain = IntervalDomain(0, 1))
+        pref = @infinite_parameter(m, test, domain = IntervalDomain(0, 1))
+        pref2 = @infinite_parameter(m, θ, domain = IntervalDomain(0, 1))
+        prefs = @infinite_parameter(m, x[1:2], domain = IntervalDomain(0, 1))
         @test InfiniteOpt._remove_name_index(pref) == "test"
         @test InfiniteOpt._remove_name_index(prefs[1]) == "x"
         @test InfiniteOpt._remove_name_index(pref2) == "θ"
@@ -218,6 +218,21 @@ end
     # test JuMP.delete (GeneralVariableRefs)
     @testset "JuMP.delete (GeneralVariableRefs)" begin
         @test_throws ArgumentError JuMP.delete(m, [gvref])
+    end
+end
+
+# test calling the general variable reference as a function
+@testset "Functional Calls" begin
+    # Setup data
+    m = InfiniteModel();
+    gvref = GeneralVariableRef(m, 1, TestIndex2)
+    # test _functional_reference_call (Fallback)
+    @testset "_functional_reference_call (Fallback)" begin
+        @test_throws ErrorException InfiniteOpt._functional_reference_call(gvref, TestIndex2, 42)
+    end
+    # test GeneralVariableRef as a function
+    @testset "GeneralVariableRef(args...)" begin
+        @test_throws ErrorException gvref(42, a = 4)
     end
 end
 
@@ -424,30 +439,9 @@ end
     for f in (:raw_parameter_refs, :parameter_refs, :parameter_list,
               :start_value_function, :reset_start_value_function,
               :infinite_variable_ref, :eval_supports, :raw_parameter_values,
-              :parameter_values, :parameter_bounds, :delete_parameter_bounds)
+              :parameter_values)
         @test_throws ArgumentError eval(f)(dvref)
         @test_throws ArgumentError eval(f)(gvref)
-    end
-    # test has_parameter_vbounds (GeneralVariableRef)
-    @testset "has_parameter_bounds (GeneralVariableRef)" begin
-        @test !has_parameter_bounds(gvref)
-    end
-    # test set_parameter_bounds (Fallback)
-    @testset "set_parameter_bounds (Fallback)" begin
-        @test_throws ArgumentError set_parameter_bounds(dvref, ParameterBounds())
-    end
-    # test set_parameter_vbounds (GeneralVariableRef)
-    @testset "set_parameter_bounds (GeneralVariableRef)" begin
-        @test_throws ArgumentError set_parameter_bounds(gvref, ParameterBounds(),
-                                                        force = true)
-    end
-    # test add_parameter_bounds (Fallback)
-    @testset "add_parameter_bounds (Fallback)" begin
-        @test_throws ArgumentError add_parameter_bounds(dvref, ParameterBounds())
-    end
-    # test add_parameter_vbounds (GeneralVariableRef)
-    @testset "add_parameter_bounds (GeneralVariableRef)" begin
-        @test_throws ArgumentError add_parameter_bounds(gvref, ParameterBounds())
     end
 end
 

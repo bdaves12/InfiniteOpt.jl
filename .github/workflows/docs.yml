@@ -7,16 +7,24 @@ on:
     types: [opened, synchronize, reopened]
 jobs:
   build:
+    env:
+      GKS_ENCODING: "utf8"
+      GKSwstype: "100"
+      PLOTS_TEST: "true"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: julia-actions/setup-julia@latest
         with:
-          version: '1.0' # Build documentation on Julia 1.0
-      - name: Install dependencies
+          version: '1.6' # Build documentation on Julia 1.6
+      - name: Install plotting dependencies # For enabling GR.jl (used by Plots.jl)
+        run: sudo apt-get install -y qt5-default
+      - name: Install julia dependencies
         run: julia --project=docs/ -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
+      - name: Plot friendly RUNCMD # needed to enable Plots.jl correctly
+        run: echo "RUNCMD=xvfb-run --auto-servernum julia" >> $GITHUB_ENV
       - name: Build and deploy
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # For authentication with GitHub Actions token
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }} # For authentication with SSH deploy key
-        run: julia --project=docs/ docs/make.jl
+        run: $RUNCMD --project=docs/ --color=yes docs/make.jl

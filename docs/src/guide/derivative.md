@@ -1,7 +1,11 @@
-# [Derivative Operators](@id deriv_page)
-A guide and manual for the definition and use of derivatives in `InfiniteOpt`.
-The Datatypes and Methods sections at the end comprise the manual, and the
-above sections comprise the guide.  
+```@meta
+DocTestFilters = [r"≥|>=", r" == | = ", r" ∈ | in ", r" for all | ∀ ", r"d|∂", 
+                  r"integral|∫", r".*scalar_parameters.jl:781"]
+```
+
+# [Derivative Operators](@id deriv_docs)
+A guide for derivatives in `InfiniteOpt`. See the respective 
+[technical manual](@ref deriv_manual) for more details.
 
 ## Overview
 Derivative operators commonly arise in many infinite-dimensional problems, 
@@ -20,11 +24,11 @@ julia> model = InfiniteModel();
 julia> @infinite_parameter(model, t in [0, 10], 
                            derivative_method = OrthogonalCollocation(3));
 
-julia> @infinite_parameter(model, ξ in Uniform(-1, 1));
+julia> @infinite_parameter(model, ξ ~ Uniform(-1, 1));
 
-julia> @infinite_variable(model, y(t, ξ));
+julia> @variable(model, y, Infinite(t, ξ));
 
-julia> @infinite_variable(model, q(t));
+julia> @variable(model, q, Infinite(t));
 ```
 Notice that we used the `derivative_method` keyword argument to specify which 
 numerical method will be used to evaluate any derivatives that depend on that 
@@ -70,7 +74,8 @@ in certain cases we may need to define an initial guess (initial guess trajector
 This can be accomplished in 2 ways:
  - Call [`set_start_value_function`](@ref set_start_value_function(::DerivativeRef,::Union{Real, Function})) 
    using the individual derivative (e.g., `d1` above)
- - Define the derivative using [`@derivative_variable`](@ref) and use the `start` keyword argument.
+ - Define the derivative using `@variable` with the [`Deriv`](@ref) variable type 
+   object and use the `start` keyword argument.
 In either case, a single value can be given or a start value function that will
 generate a value in accordance with the support values (i.e., following the same 
 syntax as infinite variables). For example, we can specify the starting value of 
@@ -104,11 +109,15 @@ julia> set_all_derivative_methods(model, FiniteDifference(Forward()))
 
 ```
 
-!!! warn 
+!!! warning
     `InfiniteOpt` does not ensure proper boundary conditions are provided by the 
     user. Thus, it is imperative that the user ensure these are provided appropriately 
     with the derivative evaluation method that is used. We recommend specifying 
-    such conditions via [`@BDconstraint`](@ref).
+    such conditions via a constraint that uses [Restricted Variables](@ref). For 
+    example:
+    ```julia
+    @constraint(model, initial_condition, y(0) == 42)
+    ```
 
 ## Advanced Definition 
 This section will detail the inner-workings and more advanced details behind 
@@ -128,7 +137,7 @@ julia> info = VariableInfo(true, 0., true, 42., false, 0., false, 0., false, fal
 More detailed information on `JuMP.VariableInfo` is provided in the 
 [Variable Definition Methodology](@ref) section. 
 
-!!! warn 
+!!! warning
     Instances of `JuMP.VariableInfo` used to define derivatives should have 
     `info.binary = false` and `info.integer = false`, since most derivative 
     evaluation methods require that derivatives be continuous.
@@ -143,8 +152,7 @@ true
 ```
 Here the argument variable can be an infinite variable, semi-infinite variable, 
 derivative, or measure that depends on the infinite parameter provided. This will 
-error to the contrary or if such a derivative has already been to the model 
-associated with the infinite parameter. 
+error to the contrary.
 
 Now we can add the derivative to the model via [`add_derivative`](@ref) which 
 will add the [`Derivative`](@ref) object and return `GeneralVariableRef` pointing 
@@ -161,29 +169,34 @@ process.
 
 ### Macro Definition 
 There are two macros we provide for defining derivatives: 
-[`@derivative_variable`](@ref) and [`@deriv`](@ref). 
+[`@variable`](https://jump.dev/JuMP.jl/v0.21.8/reference/variables/#JuMP.@variable) 
+that uses the [`Deriv`](@ref) variable type and [`@deriv`](@ref). 
 
-First, [`@derivative_variable`](@ref)
-simply automates the process described above in a manner inspired the by the syntax 
-of the variable macros. As such it will support all the same keywords and 
-constraint syntax used with the variable macros. For example, we can define the 
-derivative ``\frac{\partial^2 y(t, \xi)}{\partial t^2}`` using `d1` (defined in the 
+!!! warning
+    The `@derivative_variable` macro used by previous versions of `InfiniteOpt` 
+    is now discontinued in favor of using `@variable` with the [`Deriv`](@ref) 
+    variable type object.
+
+First, `@variable` simply automates the process described above in a manner 
+inspired the by the syntax of the variable macros. As such it will support all 
+the same keywords and constraint syntax used with the variable macros. For 
+example, we can define the derivative 
+``\frac{\partial^2 y(t, \xi)}{\partial t^2}`` using `d1` (defined in the 
 a Basic Usage section) enforcing a lower bound of 1 with an initial guess of 0 and 
 assign it to an alias `GeneralVariableRef` called `dydt2`:
 ```jldoctest deriv_basic 
-julia> @derivative_variable(model, d(d1)/d(t), dydt2 >= 1, start = 0)
+julia> @variable(model, dydt2 >= 1, Deriv(d1, t), start = 0)
 dydt2(t, ξ)
 ```
-This will also support anonymous definition and multi-dimensional definition,  
-please refer to [`@derivative_variable`](@ref) in the manual for the full details.
+This will also support anonymous definition and multi-dimensional definition. 
+Please see [Macro Variable Definition](@ref) for more information.
 
-Second, for more convenient definition we use [`@deriv`](@ref) (or [`@∂`](@ref)) as shown in the 
-Basic Usage section above. Unlike `@derivative_variable` this can handle any 
-`InfiniteOpt` expression as the argument input and will automatically take care of 
-any redundant derivative creation by using the existing derivatives as appropriate. 
-It also can build derivatives that depend on multiple infinite parameters and/or 
-are taken to higher orders. This is accomplished via recursive derivative 
-definition, handling the nesting as appropriate. For example, we can "define" 
+Second, for more convenient definition we use [`@deriv`](@ref) (or [`@∂`](@ref)) 
+as shown in the Basic Usage section above. Unlike `@variable` this can handle any 
+`InfiniteOpt` expression as the argument input. It also can build derivatives 
+that depend on multiple infinite parameters and/or are taken to higher orders. 
+This is accomplished via recursive derivative definition, handling the nesting 
+as appropriate. For example, we can "define" 
 ``\frac{\partial^2 y(t, \xi)}{\partial t^2}`` again:
 ```jldoctest deriv_basic 
 julia> @deriv(d1, t)
@@ -192,18 +205,17 @@ dydt2(t, ξ)
 julia> @deriv(y, t^2)
 dydt2(t, ξ)
 ```
-Notice that no error is thrown (which would have occurred if we called 
-`@derivative_variable` again) and that the derivative references all point to the 
-same derivative object we defined up above with its alias name `dydt2`. This macro 
-can also tackle complex expressions using the appropriate calculus such as:
+Notice that the derivative references all point to the same derivative object we 
+defined up above with its alias name `dydt2`. This macro can also tackle complex 
+expressions using the appropriate calculus such as:
 ```jldoctest deriv_basic 
 julia> @deriv(∫(y, ξ) * q, t)
 ∂/∂t[∫{ξ ∈ [-1, 1]}[y(t, ξ)]]*q(t) + ∂/∂t[q(t)]*∫{ξ ∈ [-1, 1]}[y(t, ξ)]
 ```
 Thus, demonstrating the convenience of using `@deriv`.
 
-With all this in mind, we recommend using `@deriv` as the defacto method, but then 
-using `@derivative_variable` as a convenient way to specify information constraints 
+With all this in mind, we recommend using `@deriv` as the defacto method, but 
+then using `@variable` as a convenient way to specify information constraints 
 and an initial guess value/trajectory. 
 
 ## Derivative Evaluation
@@ -393,7 +405,7 @@ julia> fill_in_supports!(t, num_supports = 3) # add supports first
 julia> evaluate(d1)
 
 julia> derivative_constraints(d1)
-2-element Array{InfOptConstraintRef,1}:
+2-element Vector{InfOptConstraintRef}:
  5 ∂/∂t[y(t, ξ)](5, ξ) - y(10, ξ) + y(5, ξ) = 0.0, ∀ ξ ~ Uniform
  5 ∂/∂t[y(t, ξ)](0, ξ) - y(5, ξ) + y(0, ξ) = 0.0, ∀ ξ ~ Uniform
 ```
@@ -410,7 +422,7 @@ julia> fill_in_supports!(ξ, num_supports = 4) # add supports first
 julia> evaluate_all_derivatives!(model)
 
 julia> derivative_constraints(dydt2)
-2-element Array{InfOptConstraintRef,1}:
+2-element Vector{InfOptConstraintRef}:
  5 dydt2(5, ξ) - ∂/∂t[y(t, ξ)](10, ξ) + ∂/∂t[y(t, ξ)](5, ξ) = 0.0, ∀ ξ ~ Uniform
  5 dydt2(0, ξ) - ∂/∂t[y(t, ξ)](5, ξ) + ∂/∂t[y(t, ξ)](0, ξ) = 0.0, ∀ ξ ~ Uniform
 ```
@@ -421,13 +433,13 @@ or derivative method will necessitate the deletion of these auxiliary constraint
 and a warning will be thrown to indicate such:
 ```jldoctest deriv_basic
 julia> derivative_constraints(d1)
-2-element Array{InfOptConstraintRef,1}:
+2-element Vector{InfOptConstraintRef}:
  5 ∂/∂t[y(t, ξ)](5, ξ) - y(10, ξ) + y(5, ξ) = 0.0, ∀ ξ ~ Uniform
  5 ∂/∂t[y(t, ξ)](0, ξ) - y(5, ξ) + y(0, ξ) = 0.0, ∀ ξ ~ Uniform
 
 julia> add_supports(t, 0.2)
 ┌ Warning: Support/method changes will invalidate existing derivative evaluation constraints that have been added to the InfiniteModel. Thus, these are being deleted.
-└ @ InfiniteOpt ~/build/pulsipher/InfiniteOpt.jl/src/scalar_parameters.jl:826
+└ @ InfiniteOpt ~/build/pulsipher/InfiniteOpt.jl/src/scalar_parameters.jl:781
 
 julia> has_derivative_constraints(d1)
 false
@@ -499,8 +511,7 @@ dydt2(t, ξ) ≥ 1.0, ∀ t ∈ [0, 10], ξ ~ Uniform
 julia> has_upper_bound(dydt2)
 false 
 
-julia> start_value_function(dydt2)
-#139 (generic function with 1 method)
+julia> func = start_value_function(dydt2);
 ```
 
 ### Model Queries 
@@ -511,7 +522,7 @@ julia> num_derivatives(model)
 7
 
 julia> all_derivatives(model)
-7-element Array{GeneralVariableRef,1}:
+7-element Vector{GeneralVariableRef}:
  ∂/∂t[y(t, ξ)]
  ∂/∂ξ[∂/∂t[y(t, ξ)]]
  ∂/∂t[q(t)]
@@ -570,63 +581,4 @@ julia> delete(model, d2)
 
 julia> is_valid(model, d2)
 false
-```
-
-## Datatypes
-```@index
-Pages   = ["derivative.md"]
-Modules = [InfiniteOpt]
-Order   = [:type]
-```
-```@docs
-DerivativeIndex
-DerivativeRef
-Derivative
-AbstractDerivativeMethod
-GenerativeDerivativeMethod
-OrthogonalCollocation
-NonGenerativeDerivativeMethod
-FiniteDifference
-FDTechnique
-Forward
-Central
-Backward
-```
-
-## [Methods/Macros] (@id deriv_methods)
-```@index
-Pages   = ["derivative.md"]
-Modules = [InfiniteOpt, JuMP]
-Order   = [:macro, :function]
-```
-```@docs
-@deriv
-@∂
-deriv
-∂
-@derivative_variable
-build_derivative
-add_derivative
-derivative_argument(::DerivativeRef)
-operator_parameter(::DerivativeRef)
-derivative_method(::DerivativeRef)
-raw_parameter_refs(::DerivativeRef)
-parameter_refs(::DerivativeRef)
-parameter_list(::DerivativeRef)
-set_start_value_function(::DerivativeRef,::Union{Real, Function})
-reset_start_value_function(::DerivativeRef)
-num_derivatives
-all_derivatives
-set_derivative_method(::IndependentParameterRef, ::NonGenerativeDerivativeMethod)
-set_derivative_method(::DependentParameterRef, ::AbstractDerivativeMethod)
-set_all_derivative_methods
-evaluate(::DerivativeRef)
-evaluate_all_derivatives!
-has_derivative_constraints(::DerivativeRef)
-derivative_constraints(::DerivativeRef)
-delete_derivative_constraints(::DerivativeRef)
-evaluate_derivative
-generative_support_info(::AbstractDerivativeMethod)
-support_label(::AbstractDerivativeMethod)
-InfiniteOpt.make_reduced_expr
 ```

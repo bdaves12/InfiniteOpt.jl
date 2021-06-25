@@ -2,10 +2,10 @@
 @testset "Queries" begin
     # initialize the model, references, and other info
     m = InfiniteModel()
-    @infinite_parameter(m, 0 <= par <= 1)
-    @infinite_variable(m, inf(par))
-    @point_variable(m, inf(0.5), pt)
-    @finite_variable(m, x)
+    @infinite_parameter(m, par in [0, 1])
+    @variable(m, inf, Infinite(par))
+    @variable(m, pt, Point(inf, 0.5))
+    @variable(m, x)
     data = TestData(par, 0, 1)
     meas = measure(x, data, name = "test")
     # test objective_sense
@@ -69,10 +69,10 @@ end
 @testset "Definition" begin
     # initialize the model, references, and other info
     m = InfiniteModel()
-    @infinite_parameter(m, 0 <= par <= 1)
-    @infinite_variable(m, inf(par))
-    @point_variable(m, inf(0.5), pt)
-    @finite_variable(m, x)
+    @infinite_parameter(m, par in [0, 1])
+    @variable(m, inf, Infinite(par))
+    @variable(m, pt, Point(inf, 0.5))
+    @variable(m, x)
     data = TestData(par, 0, 1)
     meas = measure(x, data, name = "test")
     # set_objective_sense
@@ -101,7 +101,7 @@ end
         # test errors
         @test_throws ErrorException set_objective_function(m, inf + pt)
         @test_throws ErrorException set_objective_function(m, par + pt)
-        @test_throws VariableNotOwned set_objective_function(m, @finite_variable(InfiniteModel()))
+        @test_throws VariableNotOwned set_objective_function(m, @variable(InfiniteModel()))
     end
     # set_objective_function (number)
     @testset "JuMP.set_objective_function (Number)" begin
@@ -162,10 +162,10 @@ end
 @testset "Modification" begin
     # initialize the model, references, and other info
     m = InfiniteModel()
-    @infinite_parameter(m, 0 <= par <= 1)
-    @infinite_variable(m, inf(par))
-    @point_variable(m, inf(0.5), pt)
-    @finite_variable(m, x)
+    @infinite_parameter(m, par in [0, 1])
+    @variable(m, inf, Infinite(par))
+    @variable(m, pt, Point(inf, 0.5))
+    @variable(m, x)
     data = TestData(par, 0, 1)
     meas = measure(x, data, name = "test")
     # test set_objective_coefficient
