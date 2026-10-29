@@ -3,47 +3,39 @@
 <img class="display-dark-only" src="assets/full_logo-dark.png" alt="InfiniteOpt logo"/>
 ```
 
-A `JuMP` extension for expressing and solving infinite-dimensional optimization 
+A `JuMP` extension for modeling and efficiently solving infinite-dimensional optimization 
 problems.
 
 !!! note
-    `InfiniteOpt v0.5` introduces general nonlinear modeling to `InfiniteOpt`! 
-    Thus, the possibilities for applications is vast. Please see 
-    [Nonlinear Expressions](@ref nlp_guide) for more information.
+    `InfiniteOpt v0.6` introduces quite a few new features and makes some 
+    breaking changes to the underlying data structures. The core API remains 
+    largely the same.
 
 ## What is InfiniteOpt?
-`InfiniteOpt.jl` provides a general mathematical abstraction to express and solve 
-infinite-dimensional optimization problems (i.e., problems with decision 
-functions). Such problems stem from areas such as space-time programming and 
-stochastic programming. `InfiniteOpt` is meant to facilitate intuitive model 
-definition, automatic transcription into solvable models, permit a wide range 
-of user-defined extensions/behavior, and more. 
+`InfiniteOpt.jl` provides a general modeling environment to express and efficiently solve 
+infinite-dimensional optimization problems (e.g., dynamic, stochastic, and 
+PDE-constrained optimization). `InfiniteOpt` is meant to facilitate intuitive model 
+definition that is compatible with a large suite of solution techniques 
+(including automatic transcription) to tackle large-scale real world problems. 
 
 It builds upon `JuMP` to add support for many complex modeling objects which 
 include:
-- Infinite parameters (e.g., time, space, uncertainty, etc.)
-- Finite parameters (similar to `ParameterJuMP`)
+- Infinite parameters (e.g., time, space, uncertainty, etc)
 - Infinite variables (e.g., ``y(t, x)``)
 - Derivatives (e.g., ``\frac{\partial y(t, x)}{\partial t}``)
 - Measures (e.g., ``\int_{t \in \mathcal{D}_t}y(t,x) dt``, ``\mathbb{E}[y(\xi)]``)
+- Chance constraints
 - More
 
-!!! note 
-    `InfiniteOpt` is intended to be used for infinite-dimensional optimization 
-    problems. Finite problems (e.g., directly modeling a discrete time model) 
-    should instead be modeled using [`JuMP`](https://jump.dev/JuMP.jl/stable/).
-
-Moreover, `InfiniteOpt` decouples the infinite-dimensional formulations from the 
-finite transformations typically used to solve them. This readily enables diverse 
-techniques be used to solve these types of problems. By default, we employ 
-direct transcription (i.e., discretization) transformations whose features 
-include:
-- Efficient implementations that scale **linearly**!
-- Diverse integral approximations (e.g., quadratures, sampling)
-- Diverse derivative approximations (e.g., finite difference, orthogonal 
-  collocation)
-- Sophisticated support point management system
-- Compatible with all [JuMP-supported solvers](https://jump.dev/JuMP.jl/v0.22/installation/#Supported-solvers)
+Moreover, `InfiniteOpt` modeling interface decouples infinite-dimensional 
+formulations from the solution/transformations used to solve them. This enables rapid 
+diverse switching between techniques with state-of-the-art implementations. 
+By default, we employ direct transcription (i.e., discretization) transformations 
+whose features include:
+- Highly efficient automatic transformation that scales linearly 
+- Large suite of approximation schemes (e.g., quadratures, orthogonal collocation)
+- Compatible with all [JuMP-supported solvers](https://jump.dev/JuMP.jl/v1/installation/#Supported-solvers)
+- Compatible with GPU solvers via [InfiniteExaModels](https://github.com/infiniteopt/InfiniteExaModels.jl) that make InfiniteOpt **orders-of-magnitude faster than state-of-the-art** alternatives.
 
 Accepted infinite/finite problem forms currently include:
 - Variables
@@ -69,17 +61,20 @@ Accepted infinite/finite problem forms currently include:
     - Conic
     - Semi-definite
     - Indicator
+    - Anything else supported by JuMP
+- Machine learning surrogate models (via [MathOptAI](@ref mathoptai_guide))
+- Generalized disjunctive programming (via [DisjunctiveProgramming.jl](https://github.com/infiniteopt/DisjunctiveProgramming.jl))
 
 ### Infinite-Dimensional Optimization with InfiniteOpt.jl
 See our YouTube overview of infinite-dimensional programming and InfiniteOpt.jl's 
-capabilities from JuliaCon 2021: 
-[![youtube](assets/youtube.PNG)](https://www.youtube.com/watch?v=z03Fjvz90os&t=1s "Infinite-Dimensional Optimization with InfiniteOpt.jl")
+capabilities from our JuMP-dev 2025 talk: 
+[![youtube](assets/youtube.jpg)](https://www.youtube.com/watch?v=oug8ttdzc2g&t=0s "The State of InfiniteOpt.jl")
 
 ## Installation
 `InfiniteOpt.jl` is a registered `Julia` package and can be added simply by 
 inputting the following in the package manager:
 ```julia
-(v1.6) pkg> add InfiniteOpt
+(v1.12) pkg> add InfiniteOpt
 ```
 Please visit our [Installation Guide](@ref) for more details and information
 on how to get started.
@@ -87,7 +82,7 @@ on how to get started.
 ## First Steps 
 `InfiniteOpt` is extension of `JuMP`, thus new users should start by 
 familiarizing themselves with how to use `JuMP` first. See 
-[`JuMP`'s documentation](https://jump.dev/JuMP.jl/v0.22/) to learn more.
+[`JuMP`'s documentation](https://jump.dev/JuMP.jl/v1/) to learn more.
 
 Once you're familiar with `JuMP` check out our [Quick Start Guide](@ref) to get 
 started. From there we provide extensive documentation to help you along, please 
@@ -115,7 +110,7 @@ Finally, case study examples are provided in the `Examples` sections.
 
 ## Questions
 For additional help please visit and post in our 
-[Discussion Forum](https://github.com/pulsipher/InfiniteOpt.jl/discussions).
+[Discussion Forum](https://github.com/infiniteopt/InfiniteOpt.jl/discussions).
 
 ## Contribution
 `InfiniteOpt` is a powerful tool with a broad scope lending to a large realm of 
@@ -129,7 +124,7 @@ do the following:
 3. Submit a pull request
 
 For other contributions, please visit our 
-[Developers Guide](@ref contribute_guide) for step by step instructions and to 
+[Developers Guide](@ref contribute_guide) for step-by-step instructions and to 
 review our style guide.
 
 ## Citing
@@ -150,8 +145,8 @@ citing it.
       author = {Joshua L. Pulsipher and Weiqi Zhang and Tyler J. Hongisto and Victor M. Zavala},
 }
 ```
-A pre-print version is freely available though [ArXiv](https://arxiv.org/abs/2106.12689).
+A pre-print version is freely available though [arXiv](https://arxiv.org/abs/2106.12689).
 
 ## Acknowledgements
-We acknowledge our support from the Department of Energy under grant 
+We acknowledge previous support from the Department of Energy under grant 
 DE-SC0014114.

@@ -5,7 +5,7 @@
     @infinite_parameter(m, t in [0, 1])
     w = t -> 1
     meas_data = DiscreteMeasureData(t, ones(2), ones(2), All, w, NaN, NaN, false)
-    meas = Measure(zero(AffExpr),meas_data, [1], [1], false)
+    meas = Measure(zero(AffExpr),meas_data, [1], false)
     object = MeasureData(meas)
     idx = MeasureIndex(1)
     mref = MeasureRef(m, idx)
@@ -30,22 +30,17 @@
     end
     # test _core_variable_object
     @testset "_core_variable_object" begin
-        @test InfiniteOpt._core_variable_object(mref) == meas
-        @test InfiniteOpt._core_variable_object(gvref) == meas
+        @test core_object(mref) == meas
+        @test core_object(gvref) == meas
     end
-    # test _parameter_numbers
-    @testset "_parameter_numbers" begin
-        @test InfiniteOpt._parameter_numbers(mref) == [1]
-        @test InfiniteOpt._parameter_numbers(gvref) == [1]
+    # test parameter_group_int_indices
+    @testset "parameter_group_int_indices" begin
+        @test InfiniteOpt.parameter_group_int_indices(mref) == [1]
+        @test InfiniteOpt.parameter_group_int_indices(gvref) == [1]
     end
-    # test _object_numbers
-    @testset "_object_numbers" begin
-        @test InfiniteOpt._object_numbers(mref) == [1]
-        @test InfiniteOpt._object_numbers(gvref) == [1]
-    end
-    # test _set_core_variable_object
-    @testset "_set_core_variable_object" begin
-        @test InfiniteOpt._set_core_variable_object(mref, meas) isa Nothing
+    # test _set_core_object
+    @testset "_set_core_object" begin
+        @test InfiniteOpt._set_core_object(mref, meas) isa Nothing
     end
     # _measure_dependencies
     @testset "_measure_dependencies" begin
@@ -67,6 +62,7 @@
         @test is_valid(m, mref)
         @test InfiniteOpt._delete_data_object(mref) isa Nothing
         @test !is_valid(m, mref)
+        @test_throws ErrorException InfiniteOpt._data_object(mref)
     end
 end
 
@@ -77,8 +73,6 @@ end
     @infinite_parameter(m, par in [0, 1])
     @infinite_parameter(m, pars[1:2] in [0, 1]) # Vector
     @infinite_parameter(m, pars2[1:2, 1:3] in [0, 1]) # Matrix
-    @infinite_parameter(m, pars3[2:3] in [0, 1]) # DenseAxisArray
-    @infinite_parameter(m, pars4[i = 1:2, j = 1:2; i <= j] in [0, 1]) # SparseAxisArray
     @finite_parameter(m, fpar == 42)
     coeff_func(x) = 1
     # test default weight function
@@ -110,26 +104,18 @@ end
         @test_throws ErrorException InfiniteOpt._check_params(fpar)
         @test_throws ErrorException InfiniteOpt._check_params([par, pars[1]])
         @test_throws ErrorException InfiniteOpt._check_params([pars[1], pars2[1]])
-        @test_throws ErrorException InfiniteOpt._check_params([pars4[1, 1], pars4[1, 2]])
+        @test_throws ErrorException InfiniteOpt._check_params([pars2[1, 1], pars2[1, 2]])
         @test InfiniteOpt._check_params(pars) isa Nothing
     end
     # test _prepare_supports
     @testset "_prepare_supports" begin
         # vector
         supp = [[0, 0], [1, 1]]
-        @test InfiniteOpt._prepare_supports(supp, IC.indices(pars)) == [0 1; 0 1]
+        @test InfiniteOpt._prepare_supports(supp) == [0 1; 0 1]
         # array
         supp = [zeros(2, 3), ones(2, 3)]
         expected = [zeros(6, 1) ones(6, 1)]
-        @test InfiniteOpt._prepare_supports(supp, IC.indices(pars2)) == expected
-        # DenseAxisArray
-        supp = [JuMPC.DenseAxisArray([0, 0], axes(pars3)),
-                JuMPC.DenseAxisArray([1, 1], axes(pars3))]
-        @test InfiniteOpt._prepare_supports(supp, IC.indices(pars3)) == [0 1; 0 1]
-        # SparseAxisArrays
-        supp = [JuMPC.SparseAxisArray(Dict(k => 0 for k in keys(pars4.data))),
-                JuMPC.SparseAxisArray(Dict(k => 1 for k in keys(pars4.data)))]
-        @test isequal(InfiniteOpt._prepare_supports(supp, IC.indices(pars4)), [0 1; 0 1; 0 1])
+        @test InfiniteOpt._prepare_supports(supp) == expected
     end
     # test _check_supports_in_bounds (IndependentParameterRefs)
     @testset "_check_supports_in_bounds (IndependentParameterRefs)" begin
@@ -156,8 +142,7 @@ end
         @test_throws ErrorException DiscreteMeasureData([fpar, fpar], [1],
                                                         [[1, 1]])
         @test_throws ErrorException DiscreteMeasureData([par, pars[1]], [1], [[1, 1]])
-        @test_throws ErrorException DiscreteMeasureData(pars3, [1], [[1, 2]])
-        @test_throws ErrorException DiscreteMeasureData(pars3, [1], [JuMPC.DenseAxisArray([1,2],2:3)], lower_bounds = [NaN, NaN])
+        @test_throws ErrorException DiscreteMeasureData(pars, [1], [[1,1]], lower_bounds = zeros(3))
     end
     # test _check_bounds_in_domain (IndependentParameter)
     @testset "_check_bounds_in_domain (independent parameters)" begin
@@ -177,7 +162,7 @@ end
     @testset "FunctionalDiscreteMeasureData (multidim)" begin
         @test isa(FunctionalDiscreteMeasureData(pars, coeff_func, 10, All, lower_bounds = [0.3, 0.3], upper_bounds = [0.7, 0.7]), FunctionalDiscreteMeasureData)
         @test_throws ErrorException FunctionalDiscreteMeasureData(pars, coeff_func, -1, All)
-        @test_throws ErrorException FunctionalDiscreteMeasureData(pars3, coeff_func, 5, MCSample, lower_bounds = [NaN, NaN])
+        @test_throws ErrorException FunctionalDiscreteMeasureData(pars2, coeff_func, 5, MCSample, lower_bounds = [NaN, NaN])
 
     end
     # test copy methods
@@ -479,8 +464,6 @@ end
         # test functionality
         @test isa(add_supports_to_parameters(data5), Nothing)
         @test num_supports(par) == 5
-        # test error 
-        @test_throws ErrorException add_supports_to_parameters(data6)
         # clear supports
         delete_supports(par)
         add_supports_to_parameters(data7)
@@ -534,7 +517,7 @@ end
     end
     # test add_measure
     @testset "add_measure" begin
-        meas1 = Measure(par + 2inf - x, data1, [1], [1], false)
+        meas1 = Measure(par + 2inf - x, data1, [1], false)
         mref1 = MeasureRef(m, MeasureIndex(1))
         @test isequal(dispatch_variable_ref(add_measure(m, meas1, "measure1")), mref1)
         @test supports(par) == [1.0]
@@ -553,7 +536,7 @@ end
     @variable(m, inf, Infinite(par))
     @variable(m, x)
     data = DiscreteMeasureData(par, [1], [1])
-    meas = Measure(par + 2inf - x, data, [1], [1], false)
+    meas = Measure(par + 2inf - x, data, [1], false)
     mref = add_measure(m, meas)
     # test measure_function
     @testset "measure_function" begin
@@ -566,15 +549,6 @@ end
     # test is_analytic
     @testset "is_analytic" begin
         @test !is_analytic(mref)
-    end
-    # test _make_param_tuple_element (IndependentParameterIndex)
-    @testset "_make_param_tuple_element (IndependentParameterIndex)" begin
-        @test isequal(InfiniteOpt._make_param_tuple_element(m, IndependentParameterIndex(1), [1]), par)
-    end
-    # test _make_param_tuple_element (DependentParameterIndex)
-    @testset "_make_param_tuple_element (DependentParameterIndex)" begin
-        @test isequal(InfiniteOpt._make_param_tuple_element(m, DependentParametersIndex(1), [2, 3]), pars)
-        @test isequal(InfiniteOpt._make_param_tuple_element(m, DependentParametersIndex(1), [2]), pars[1])
     end
     # test parameter_refs for measure
     @testset "parameter_refs (measure)" begin
@@ -703,11 +677,11 @@ end
         # test scalar FunctionalDiscreteMeasureData
         mref6 = GeneralVariableRef(m, 5, MeasureIndex)
         @test isequal(measure(inf, data4), mref6)
-        @test InfiniteOpt._core_variable_object(mref6).data.label == UniformGrid
+        @test core_object(mref6).data.label == UniformGrid
         # test multidim FunctionalDiscreteMeasureData
         mref7 = GeneralVariableRef(m, 6, MeasureIndex)
         @test isequal(measure(inf5, data5), mref7)
-        @test InfiniteOpt._core_variable_object(mref7).data.label == WeightedSample
+        @test core_object(mref7).data.label == WeightedSample
         # test analytic evaluation
         @test measure(x, data) isa GeneralVariableRef
         @test is_analytic(measure(x, data))

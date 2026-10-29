@@ -4,7 +4,7 @@
     m = InfiniteModel()
     @infinite_parameter(m, t in [0, 1])
     @infinite_parameter(m, x[1:2] in [-1, 1])
-    func = ParameterFunction(sin, IC.VectorTuple(t), [1], [1])
+    func = ParameterFunction(sin, IC.VectorTuple(t), [1])
     object = ParameterFunctionData(func, "test")
     idx = ParameterFunctionIndex(1)
     fref = ParameterFunctionRef(m, idx)
@@ -47,16 +47,12 @@
     end
     # _core_variable_object
     @testset "_core_variable_object" begin
-        @test InfiniteOpt._core_variable_object(fref) === func
-        @test InfiniteOpt._core_variable_object(gvref) === func
+        @test core_object(fref) === func
+        @test core_object(gvref) === func
     end
-    # _object_numbers
-    @testset "_object_numbers" begin
-        @test InfiniteOpt._object_numbers(fref) == [1]
-    end
-    # _parameter_numbers
-    @testset "_parameter_numbers" begin
-        @test InfiniteOpt._parameter_numbers(fref) == [1]
+    # parameter_group_int_indices
+    @testset "parameter_group_int_indices" begin
+        @test InfiniteOpt.parameter_group_int_indices(fref) == [1]
     end
     # JuMP.name
     @testset "JuMP.name" begin
@@ -87,10 +83,10 @@
         @test InfiniteOpt._semi_infinite_variable_dependencies(fref) == SemiInfiniteVariableIndex[]
         @test InfiniteOpt._semi_infinite_variable_dependencies(gvref) == SemiInfiniteVariableIndex[]
     end
-    # _derivative_dependencies
-    @testset "_derivative_dependencies" begin
-        @test InfiniteOpt._derivative_dependencies(fref) == DerivativeIndex[]
-        @test InfiniteOpt._derivative_dependencies(gvref) == DerivativeIndex[]
+    # _point_variable_dependencies
+    @testset "_point_variable_dependencies" begin
+        @test InfiniteOpt._point_variable_dependencies(fref) == PointVariableIndex[]
+        @test InfiniteOpt._point_variable_dependencies(gvref) == PointVariableIndex[]
     end
     # raw_parameter_refs
     @testset "raw_parameter_refs" begin
@@ -112,10 +108,30 @@
         @test raw_function(fref) == sin
         @test raw_function(gvref) == sin
     end
+    # parameter_value
+    @testset "JuMP.parameter_value" begin
+        @test parameter_value(fref).func == sin
+        @test parameter_value(gvref).func == sin
+    end
+    # set_parameter_value
+    @testset "JuMP.set_parameter_value" begin
+        @test isa(set_parameter_value(fref, cos), Nothing)
+        @test parameter_value(fref).func == cos
+        @test isa(set_parameter_value(gvref, tan), Nothing)
+        @test parameter_value(gvref).func  == tan
+        @test_throws ErrorException set_parameter_value(fref, (a, b) -> 42)
+        # test reset inducing change
+        set_transformation_backend_ready(m, true)
+        push!(InfiniteOpt._constraint_dependencies(fref), InfOptConstraintIndex(1))
+        @test isa(set_parameter_value(fref, sin), Nothing)
+        @test parameter_value(fref).func == sin
+        @test !transformation_backend_ready(m)
+        empty!(InfiniteOpt._constraint_dependencies(fref))
+    end
     # call_function
     @testset "call_function" begin
         @test call_function(fref, 0) == 0
-        @test call_function(gvref, 0) == 0
+        @test call_function(gvref, [0]) == 0
     end
     # test used_by_semi_infinite_variable
     @testset "used_by_semi_infinite_variable" begin
@@ -125,12 +141,12 @@
         @test used_by_semi_infinite_variable(fref)
         empty!(InfiniteOpt._semi_infinite_variable_dependencies(fref))
     end
-    # test used_by_derivative
-    @testset "used_by_derivative" begin
-        @test !used_by_derivative(fref)
-        push!(InfiniteOpt._derivative_dependencies(fref), DerivativeIndex(1))
-        @test used_by_derivative(fref)
-        empty!(InfiniteOpt._derivative_dependencies(fref))
+    # test used_by_point_variable
+    @testset "used_by_point_variable" begin
+        @test !used_by_point_variable(fref)
+        push!(InfiniteOpt._point_variable_dependencies(fref), PointVariableIndex(1))
+        @test used_by_point_variable(fref)
+        empty!(InfiniteOpt._point_variable_dependencies(fref))
     end
     # test used_by_measure
     @testset "used_by_measure" begin
@@ -213,10 +229,29 @@
     @testset "Other Objects" begin
         f = parameter_function((a,b) -> 2, (t, x))
         # test making semi_infinite variable
-        d = Dict{Int, Float64}(1 => 0)
-        @test add_variable(m, build_variable(error, f, d)) isa GeneralVariableRef
+        @test f(0, x) isa GeneralVariableRef
+        # test making point
+        @test f(0, [0, 0]) isa GeneralVariableRef
+        @test_macro_throws ErrorException @variable(m, pt_var => 0, Point(f, 0, [0, 0])) 
         # test making derivative 
-        @test deriv(f, t) isa GeneralVariableRef
+        @test_throws ErrorException deriv(f, t)
+    end
+    # test model Queries
+    @testset "Model Queries" begin
+        @test num_parameter_functions(m) == 6
+        @test all_parameter_functions(m) isa Vector{GeneralVariableRef}
+    end
+    # test object overloading
+    @testset "Object Overloading" begin
+        g = parameter_function((a, b) -> 42, (t, x))
+        @test core_object(g)(0, [0, 0]) == 42
+        @test core_object(g)([0, 0, 0]) == 42
+        g = parameter_function((b) -> 24, x)
+        @test core_object(g)([0, 0]) == 24
+        @infinite_parameter(m, s in [0, 1])
+        g = parameter_function((a, b) -> a + b, (t, s))
+        @test core_object(g)(0, 1) == 1
+        @test core_object(g)([2, 1]) == 3
     end
 end
 
@@ -226,7 +261,7 @@ end
     m = InfiniteModel()
     @infinite_parameter(m, t in [0, 1])
     @infinite_parameter(m, x[1:2] in [0, 1], independent = true)
-    f5(t, x, a...; b...) = 42
+    f5(t, x1, x2, a...; b...) = 42
     # test _expr_replace!
     @testset "_expr_replace!" begin
         @test InfiniteOpt._expr_replace!(:(t -> f(t, x)), :t, :y) == :(y -> f(y, x))
@@ -249,10 +284,11 @@ end
         anon = :((t, x) -> f(t, x, 1, d = 1))
         @test InfiniteOpt._process_func_expr(error, anon) == (esc(anon), esc(:(t,x)), true)
         anon = :((t, x[1]) -> sin(t + x[1]))
-        @test eval(InfiniteOpt._process_func_expr(error, anon)[1].args[1])(0.5, 0.2) == sin(0.5 + 0.2)
+        # Need invokelatest due to https://github.com/infiniteopt/InfiniteOpt.jl/pull/369
+        @test invokelatest(eval(InfiniteOpt._process_func_expr(error, anon)[1].args[1]), 0.5, 0.2) == sin(0.5 + 0.2)
         anon = :(t[i] -> t[i] + 3)
-        @test eval(InfiniteOpt._process_func_expr(error, anon)[1].args[1])(2) == 5
-        # test errors 
+        @test invokelatest(eval(InfiniteOpt._process_func_expr(error, anon)[1].args[1]), 2) == 5
+        # test errors
         @test_throws ErrorException InfiniteOpt._process_func_expr(error, :(f(t, d = 2)))
         @test_throws ErrorException InfiniteOpt._process_func_expr(error, :(f(x, t; d = 2)))
         @test_throws ErrorException InfiniteOpt._process_func_expr(error, :(f >= 2))
@@ -261,9 +297,11 @@ end
     # test @parameter_function
     @testset "@parameter_function" begin
         # test errors
+        @test_macro_throws ErrorException @parameter_function()
         @test_macro_throws ErrorException @parameter_function(m)
         @test_macro_throws ErrorException @parameter_function(m, func = f5)
         @test_macro_throws ErrorException @parameter_function(m, y == sin(t), Int)
+        @test_macro_throws ErrorException @parameter_function(m, 2 == sin(t))
         @test_macro_throws ErrorException @parameter_function(m, [1:2])
         @test_macro_throws ErrorException @parameter_function(m, "a$(1)" == f5(t, x))
         @test_macro_throws ErrorException @parameter_function(m, a[m = 1:2] == f5(t, x))
@@ -272,21 +310,21 @@ end
         # test anonymous singular 
         idx = 1
         ref = GeneralVariableRef(m, idx, ParameterFunctionIndex)
-        @test isequal(@parameter_function(m, f5(t, x), base_name = "a"), ref)
+        @test isequal(@parameter_function(m, f5(t, x...); base_name = "a"), ref)
         @test name(ref) == "a"
         @test raw_function(ref) == f5 
-        @test isequal(parameter_refs(ref), (t, x))
+        @test isequal(parameter_refs(ref), (t, x...))
         idx += 1
         ref = GeneralVariableRef(m, idx, ParameterFunctionIndex)
-        @test isequal(@parameter_function(m, f5(t, x)), ref)
+        @test isequal(@parameter_function(m, f5(t, x...)), ref)
         @test name(ref) == "f5"
         @test raw_function(ref) == f5
-        @test isequal(parameter_refs(ref), (t, x))
+        @test isequal(parameter_refs(ref), (t, x...))
         idx += 1
         # test anonymous single argument multi-dim 
         refs = [GeneralVariableRef(m, idx + i, ParameterFunctionIndex) for i in 0:1]
-        @test isequal(@parameter_function(m, [1:2] == f5(t, x)), refs)
-        @test isequal(parameter_refs(refs[1]), (t, x))
+        @test isequal(@parameter_function(m, [1:2] == f5(t, x...)), refs)
+        @test isequal(parameter_refs(refs[1]), (t, x...))
         @test raw_function(refs[2]) == f5 
         @test name.(refs) == ["f5", "f5"]
         idx += 2
@@ -300,28 +338,28 @@ end
         idx += 2
         # test explicit single 
         ref = GeneralVariableRef(m, idx, ParameterFunctionIndex)
-        @test isequal(@parameter_function(m, a == f5(t, x), base_name = "bob"), ref)
+        @test isequal(@parameter_function(m, a == f5(t, x...), base_name = "bob"), ref)
         @test name(ref) == "bob"
         @test raw_function(ref) == f5 
-        @test isequal(parameter_refs(ref), (t, x))
+        @test isequal(parameter_refs(ref), (t, x...))
         idx += 1
         ref = GeneralVariableRef(m, idx, ParameterFunctionIndex)
-        @test isequal(@parameter_function(m, c == (t, x) -> f5(t, x, 2, d = 1)), ref)
+        @test isequal(@parameter_function(m, c == (t, x...) -> f5(t, x..., 2, d = 1)), ref)
         @test name(ref) == "c"
         @test raw_function(ref) != f5 
         @test raw_function(ref)(1, [1, 1]) == 42
-        @test isequal(parameter_refs(ref), (t, x))
+        @test isequal(parameter_refs(ref), (t, x...))
         idx += 1
         # test explicit multi-dim 
         refs = [GeneralVariableRef(m, idx + i, ParameterFunctionIndex) for i in 0:1]
-        @test isequal(@parameter_function(m, d[1:2] == f5(t, x)), refs)
-        @test isequal(parameter_refs(refs[1]), (t, x))
+        @test isequal(@parameter_function(m, d[1:2] == f5(t, x...)), refs)
+        @test isequal(parameter_refs(refs[1]), (t, x...))
         @test raw_function(refs[2]) == f5 
         @test name.(refs) == ["d[1]", "d[2]"]
         idx += 2
         refs = [GeneralVariableRef(m, idx + i, ParameterFunctionIndex) for i in 0:1]
-        @test isequal(@parameter_function(m, e[1:2] == (t, x) -> f5(t, x, 2; s = 1)), refs)
-        @test isequal(parameter_refs(refs[1]), (t, x))
+        @test isequal(@parameter_function(m, e[1:2] == (t, x...) -> f5(t, x..., 2; s = 1)), refs)
+        @test isequal(parameter_refs(refs[1]), (t, x...))
         @test raw_function(refs[2]) != f5 
         @test name.(refs) == ["e[1]", "e[2]"]
         idx += 2
@@ -332,39 +370,6 @@ end
         @test call_function.(refs, 0.5, 0.2) == [sin(0.5 + 0.2), sin(0.5 + 0.2)] 
         @test name.(refs) == ["", ""]
         idx += 2
-    end
-end
-
-# Test the basic extensions 
-@testset "Base Extensions" begin
-    # setup model
-    m = InfiniteModel()
-    @variable(m, z)
-    @variable(m, y)
-    aff = 2z + 42
-    quad = z^2 + 2z
-    nlp = sin(z)
-    # test convert
-    @testset "Base.convert (NLPExpr)" begin 
-        @test isequal(convert(NLPExpr, 1), one(NLPExpr))
-        @test isequal(convert(NLPExpr, z), NLPExpr(Node(NodeData(z))))
-        @test isequal(convert(NLPExpr, aff), NLPExpr(Node(NodeData(aff))))
-        @test isequal(convert(NLPExpr, quad), NLPExpr(Node(NodeData(quad))))
-        @test convert(NLPExpr, nlp) === nlp
-    end
-    # test isequal for UnorderedPair
-    @testset "Base.isequal (JuMP.UnorderedPair)" begin
-        @test isequal(UnorderedPair(z, z), UnorderedPair(z, z))
-        @test isequal(UnorderedPair(z, y), UnorderedPair(y, z))
-        @test !isequal(UnorderedPair(z, y), UnorderedPair(z, z))
-    end
-    # test isequal for expressions 
-    @testset "Base.isequal (Expr Fallbacks)" begin
-        @test !isequal(z, 2)
-        @test !isequal(2, z)
-        @test !isequal(z, aff)
-        @test !isequal(z, quad)
-        @test !isequal(nlp, aff)
     end
 end
 
@@ -399,8 +404,8 @@ end
         @test InfiniteOpt._interrogate_variables(i -> push!(a, i), quad) isa Nothing
         @test isequal(a, [z, z, z])
     end
-    # test NLPExpr
-    @testset "NLPExpr" begin
+    # test GenericNonlinearExpr
+    @testset "GenericNonlinearExpr" begin
         a = []
         @test InfiniteOpt._interrogate_variables(i -> push!(a, i), nlp) isa Nothing
         @test isequal(a, [z, z])
@@ -413,8 +418,8 @@ end
     end
 end
 
-# Test _all_function_variables
-@testset "_all_function_variables" begin
+# Test all_expression_variables
+@testset "all_expression_variables" begin
     # initialize model and references
     m = InfiniteModel()
     @infinite_parameter(m, par in [0, 1])
@@ -422,18 +427,18 @@ end
     @variable(m, pt, Point(inf, 0))
     @variable(m, finite)
     data = TestData(par, 0, 5)
-    meas = Measure(finite, data, Int[], Int[], true)
+    meas = Measure(finite, data, Int[], true)
     object = MeasureData(meas, "test")
     mindex = MeasureIndex(1)
     @test InfiniteOpt._add_data_object(m, object) == mindex
-    meas = InfiniteOpt._make_variable_ref(m, mindex)
+    meas = InfiniteOpt.GeneralVariableRef(m, mindex)
     dinf = @deriv(inf, par)
     # test for variable reference
     @testset "Variable" begin
-        @test isequal(InfiniteOpt._all_function_variables(par), [par])
-        @test isequal(InfiniteOpt._all_function_variables(inf), [inf])
-        @test isequal(InfiniteOpt._all_function_variables(meas), [meas])
-        @test isequal(InfiniteOpt._all_function_variables(dinf), [dinf])
+        @test isequal(all_expression_variables(par), [par])
+        @test isequal(all_expression_variables(inf), [inf])
+        @test isequal(all_expression_variables(meas), [meas])
+        @test isequal(all_expression_variables(dinf), [dinf])
     end
     # test for GenericAffExpr
     @testset "AffExpr" begin
@@ -441,9 +446,9 @@ end
         aff1 = meas + 2par + finite - dinf
         aff2 = zero(GenericAffExpr{Float64, GeneralVariableRef})
         # test expressions
-        @test isempty(setdiff(InfiniteOpt._all_function_variables(aff1),
+        @test isempty(setdiff(all_expression_variables(aff1),
                               [meas, par, finite, dinf]))
-        @test InfiniteOpt._all_function_variables(aff2) == GeneralVariableRef[]
+        @test all_expression_variables(aff2) == GeneralVariableRef[]
     end
     # test for GenericQuadExpr
     @testset "QuadExpr" begin
@@ -452,11 +457,11 @@ end
         quad2 = pt^2 + inf * pt
         quad3 = zero(GenericQuadExpr{Float64, GeneralVariableRef})
         # test expressions
-        @test isempty(setdiff(InfiniteOpt._all_function_variables(quad1),
+        @test isempty(setdiff(all_expression_variables(quad1),
                       [meas, par, finite, dinf, pt, inf]))
-        @test isempty(setdiff(InfiniteOpt._all_function_variables(quad2),
+        @test isempty(setdiff(all_expression_variables(quad2),
                               [pt, inf]))
-        @test InfiniteOpt._all_function_variables(quad3) == GeneralVariableRef[]
+        @test all_expression_variables(quad3) == GeneralVariableRef[]
     end
     # test for Array of expressions
     @testset "AbstractArray" begin
@@ -464,28 +469,28 @@ end
         ex1 = [inf, pt]
         ex2 = [inf + pt, meas + pt]
         # test expressions
-        @test isempty(setdiff(InfiniteOpt._all_function_variables(ex1),
+        @test isempty(setdiff(all_expression_variables(ex1),
                       [pt, inf]))
-        @test isempty(setdiff(InfiniteOpt._all_function_variables(ex2),
+        @test isempty(setdiff(all_expression_variables(ex2),
                               [pt, inf, meas]))
     end
     # test for Array of expressions
-    @testset "NLPExpr" begin
+    @testset "GenericNonlinearExpr" begin
         # make expressions
         nlp = sin(pt) + inf / pt
         # test expressions
-        @test isempty(setdiff(InfiniteOpt._all_function_variables(nlp),
+        @test isempty(setdiff(all_expression_variables(nlp),
                       [pt, inf]))
     end
     # test backup
     @testset "Fallback" begin
         @variable(Model(), x)
-        @test_throws ErrorException InfiniteOpt._all_function_variables(x)
+        @test_throws ErrorException all_expression_variables(x)
     end
 end
 
-# Test _object_numbers
-@testset "_object_numbers" begin
+# Test parameter_group_int_indices
+@testset "parameter_group_int_indices" begin
     # initialize model and references
     m = InfiniteModel()
     @infinite_parameter(m, par in [0, 1])
@@ -494,25 +499,25 @@ end
     @variable(m, inf2, Infinite(par, pars))
     @variable(m, pt, Point(inf, 0))
     @variable(m, finite)
-    var = build_variable(error, inf2, Dict{Int, Float64}(1 => 0.5), check = false)
+    var = build_variable(error, inf2, [0.5, NaN, NaN], check = false)
     red = add_variable(m, var)
     # test for finite variable reference
     @testset "FiniteVariable" begin
-        @test InfiniteOpt._object_numbers(pt) == []
-        @test InfiniteOpt._object_numbers(finite) == []
+        @test InfiniteOpt.parameter_group_int_indices(pt) == []
+        @test InfiniteOpt.parameter_group_int_indices(finite) == []
     end
     # test for infinite variable reference
     @testset "InfiniteVariable" begin
-        @test InfiniteOpt._object_numbers(inf) == [1]
+        @test InfiniteOpt.parameter_group_int_indices(inf) == [1]
     end
     # test for parameter reference
     @testset "Parameter" begin
-        @test InfiniteOpt._object_numbers(par) == [1]
-        @test InfiniteOpt._object_numbers(pars[1]) == [2]
+        @test InfiniteOpt.parameter_group_int_indices(par) == [1]
+        @test InfiniteOpt.parameter_group_int_indices(pars[1]) == [2]
     end
     # test for semi-infinite variable reference
     @testset "SemiInfiniteInfinite" begin
-        @test InfiniteOpt._object_numbers(red) == [2]
+        @test InfiniteOpt.parameter_group_int_indices(red) == [2]
     end
     # test for GenericAffExpr
     @testset "AffExpr" begin
@@ -520,8 +525,8 @@ end
         aff1 = inf + inf2 + pt - 3
         aff2 = pt + finite - 2
         # test expressions
-        @test sort!(InfiniteOpt._object_numbers(aff1)) == [1, 2]
-        @test InfiniteOpt._object_numbers(aff2) == []
+        @test sort!(InfiniteOpt.parameter_group_int_indices(aff1)) == [1, 2]
+        @test InfiniteOpt.parameter_group_int_indices(aff2) == []
     end
     # test for GenericQuadExpr
     @testset "QuadExpr" begin
@@ -529,127 +534,15 @@ end
         quad1 = inf * inf2 + inf + inf2 + pt - 3 - par
         quad2 = pt * pt + pt + finite - 2
         # test expressions
-        @test sort!(InfiniteOpt._object_numbers(quad1)) == [1, 2]
-        @test InfiniteOpt._object_numbers(quad2) == []
+        @test sort!(InfiniteOpt.parameter_group_int_indices(quad1)) == [1, 2]
+        @test InfiniteOpt.parameter_group_int_indices(quad2) == []
     end
-    # test for NLPExpr
-    @testset "NLPExpr" begin
+    # test for GenericNonlinearExpr
+    @testset "GenericNonlinearExpr" begin
         # make expressions
-        nlp = sin(inf)
+        nlp = sin(inf) / pt
         # test expressions
-        @test InfiniteOpt._object_numbers(nlp) == [1]
-    end
-end
-
-# Test _parameter_numbers
-@testset "_parameter_numbers" begin
-    # initialize model and references
-    m = InfiniteModel()
-    @infinite_parameter(m, par in [0, 1])
-    @infinite_parameter(m, pars[1:2] in [0, 1])
-    @variable(m, inf, Infinite(par))
-    @variable(m, inf2, Infinite(par, pars))
-    @variable(m, pt, Point(inf, 0))
-    @variable(m, finite)
-    var = build_variable(error, inf2, Dict{Int, Float64}(1 => 0.5), check = false)
-    red = add_variable(m, var)
-    # test for finite variable reference
-    @testset "FiniteVariable" begin
-        @test InfiniteOpt._parameter_numbers(pt) == []
-        @test InfiniteOpt._parameter_numbers(finite) == []
-    end
-    # test for infinite variable reference
-    @testset "InfiniteVariable" begin
-        @test InfiniteOpt._parameter_numbers(inf) == [1]
-        @test InfiniteOpt._parameter_numbers(inf2) == [1, 2, 3]
-    end
-    # test for parameter reference
-    @testset "Parameter" begin
-        @test InfiniteOpt._parameter_numbers(par) == [1]
-        @test InfiniteOpt._parameter_numbers(pars[2]) == [3]
-    end
-    # test for semi-infinite variable reference
-    @testset "SemiInfiniteInfinite" begin
-        @test InfiniteOpt._parameter_numbers(red) == [2, 3]
-    end
-    # test for GenericAffExpr
-    @testset "AffExpr" begin
-        # make expressions
-        aff1 = inf + inf2 + pt - 3
-        aff2 = pt + finite - 2
-        # test expressions
-        @test sort!(InfiniteOpt._parameter_numbers(aff1)) == [1, 2, 3]
-        @test InfiniteOpt._parameter_numbers(aff2) == []
-    end
-    # test for GenericQuadExpr
-    @testset "QuadExpr" begin
-        # make expressions
-        quad1 = inf * inf2 + inf + inf2 + pt - 3 - par
-        quad2 = pt * pt + pt + finite - 2
-        # test expressions
-        @test sort!(InfiniteOpt._parameter_numbers(quad1)) == [1, 2, 3]
-        @test InfiniteOpt._parameter_numbers(quad2) == []
-    end
-    # test for NLPExpr
-    @testset "NLPExpr" begin
-        # make expressions
-        nlp = sin(inf2)
-        # test expressions
-        @test sort!(InfiniteOpt._parameter_numbers(nlp)) == [1, 2, 3]
-    end
-end
-
-# Test _model_from_expr
-@testset "_model_from_expr" begin
-    # initialize model and references
-    m = InfiniteModel()
-    @variable(m, hd)
-    # test for variable reference
-    @testset "Variable" begin
-        @test InfiniteOpt._model_from_expr(hd) === m
-    end
-    # test for GenericAffExpr
-    @testset "AffExpr" begin
-        # make expressions
-        aff1 = hd + 2
-        aff2 = zero(JuMP.GenericAffExpr{Float64, GeneralVariableRef})
-        # test expressions
-        @test InfiniteOpt._model_from_expr(aff1) === m
-        @test InfiniteOpt._model_from_expr(aff2) isa Nothing
-    end
-    # test for GenericQuadExpr
-    @testset "QuadExpr" begin
-        # make expressions
-        quad1 = hd * hd + hd + 1
-        quad2 = zero(JuMP.GenericQuadExpr{Float64, GeneralVariableRef})
-        quad3 = hd * hd + 1
-        # test expressions
-        @test InfiniteOpt._model_from_expr(quad1) === m
-        @test InfiniteOpt._model_from_expr(quad2) isa Nothing
-        @test InfiniteOpt._model_from_expr(quad3) === m
-    end
-    # test for NLPExpr
-    @testset "NLPExpr" begin
-        # make expressions
-        nlp1 = sin(hd)
-        nlp2 = zero(NLPExpr)
-        nlp3 = 2 + sin(hd^2)
-        # test expressions
-        @test InfiniteOpt._model_from_expr(nlp1) === m
-        @test InfiniteOpt._model_from_expr(nlp2) isa Nothing
-        @test InfiniteOpt._model_from_expr(nlp3) === m
-    end
-    # test for Vector{GeneralVariableRef}
-    @testset "Vector{GeneralVariableRef}" begin
-        vrefs1 = GeneralVariableRef[]
-        vrefs2 = [hd]
-        # test expressions
-        @test InfiniteOpt._model_from_expr(vrefs1) isa Nothing
-        @test InfiniteOpt._model_from_expr(vrefs2) === m
-    end
-    # test Fallback
-    @testset "Fallback" begin
-        @test_throws ErrorException InfiniteOpt._model_from_expr(:bad)
+        @test InfiniteOpt.parameter_group_int_indices(nlp) == [1]
     end
 end
 
@@ -687,19 +580,20 @@ end
         @test !haskey(quad.terms, UnorderedPair{GeneralVariableRef}(pt, pt))
         @test isa(InfiniteOpt._remove_variable(quad2, inf), Nothing)
     end
-    # test for NLPExpr 
-    @testset "NLPExpr" begin 
+    # test for GenericNonlinearExpr 
+    @testset "GenericNonlinearExpr" begin 
         # make expressions 
         nlp1 = sin(3pt)
-        nlp2 = pt^2.3 + max(inf, pt)
+        nlp2 = pt^2.3 + ^(inf, pt)
         nlp3 = cos(pt^2 + pt) / (2pt + 2inf)
         # test expressions 
         @test InfiniteOpt._remove_variable(nlp1, pt) isa Nothing 
-        @test isequal(nlp1, sin(zero(zero(GenericAffExpr{Float64, GeneralVariableRef}))))
+        @test isequal(nlp1, sin(zero(GenericAffExpr{Float64, GeneralVariableRef})))
         @test InfiniteOpt._remove_variable(nlp2, pt) isa Nothing 
-        @test isequal(nlp2, zero(NLPExpr)^2.3 + max(inf, 0.0))
+        @test nlp2.args[1].args == [0.0, 2.3]
+        @test nlp2.args[2].args == Any[inf, 0.0]
         @test InfiniteOpt._remove_variable(nlp3, inf) isa Nothing 
-        @test isequal(nlp3, cos(pt^2 + pt) / (2pt))
+        @test nlp3.args[2] == 2pt
     end
     # test for AbstractArray
     @testset "AbstractArray" begin
@@ -720,23 +614,63 @@ end
     aff = 2z + 42
     quad = z^2 + 2z
     nlp = (sin(z) + aff) ^ 3.4
-    @variable(Model(), x)
+    new_b = TranscriptionBackend()
+    @variable(new_b.model, x)
     # test variable 
     @testset "Variable" begin
-        @test isequal(map_expression(v -> x, z), x)
+        @test isequal(map_expression(v -> x, z, new_b), x)
     end
     # test AffExpr
     @testset "AffExpr" begin
-        @test isequal(map_expression(v -> x, aff), 2x + 42)
+        @test isequal(map_expression(v -> x, aff, new_b), 2x + 42)
+        @test isequal(map_expression(v -> y, aff), 2y + 42)
+        @test map_expression(v -> x, zero(AffExpr)) == zero(AffExpr)
     end
     # test QuadExpr 
     @testset "QuadExpr" begin
-        @test isequal(map_expression(v -> x, quad), x^2 + 2x)
+        @test isequal(map_expression(v -> x, quad, new_b), x^2 + 2x)
     end
-    # test NLPExpr
-    @testset "NLPExpr" begin
-        @test isequal(map_expression(v -> z, nlp), (sin(z) + (2z + 42)) ^ 3.4)
+    # test GenericNonlinearExpr
+    @testset "GenericNonlinearExpr" begin
+        @test isequal(map_expression(v -> y, nlp, m), (sin(y) + (2y + 42))^3.4)
+        @test isequal(map_expression(v -> y, nlp), (sin(y) + (2y + 42))^3.4)
         @test isequal(map_expression(v -> v^3, sin(y)), sin(y^3))
+        @test isequal(map_expression(v -> x, sin(y), new_b), sin(x))
+        @test map_expression(v -> y, 42) == 42
+    end
+    # test map_nlp_to_ast deprecation
+    @testset "map_nlp_to_ast (deprecation)" begin
+        @test_throws ErrorException map_nlp_to_ast(v -> y, nlp)
+    end
+end
+
+# Test restrictions
+@testset "restrict" begin 
+    # setup model
+    m = InfiniteModel()
+    @infinite_parameter(m, t in [0, 1])
+    @infinite_parameter(m, x in [-1, 1])
+    @variable(m, y, Infinite(t, x))
+    @variable(m, q, Infinite(x, t))
+    @variable(m, w, Infinite(t))
+    @variable(m, w2, Infinite(t))
+    @variable(m, z)
+    # test AffExpr
+    @testset "AffExpr" begin
+        @test (2z + y + 42)(0, -1) == 2z + y(0, -1) + 42
+        @test (2z + y + 42)(0, x) == 2z + y(0, x) + 42
+        @test (w + w2)(0) == w(0) + w2(0)
+        @test_throws ErrorException (y + q)(0, 0)
+        @test_throws ErrorException (y + t)(0, x)
+    end
+    # test QuadExpr 
+    @testset "QuadExpr" begin
+        @test (z^2 + 3y - 2)(0, -1) == z^2 + 3y(0, -1) - 2
+        @test (w^2 - 2)(0) == w(0)^2 - 2
+    end
+    # test GenericNonlinearExpr
+    @testset "GenericNonlinearExpr" begin
+        @test isequal_canonical((sin(y) * z)(t, -1), sin(y(t, -1)) * z)
     end
 end
 

@@ -2,7 +2,7 @@ using InfiniteOpt: _domain_or_error
 using Test: Error
 # Load in the dependencies
 using InfiniteOpt, Distributions, Random, FastGaussQuadrature, DataStructures, 
-LeftChildRightSiblingTrees, AbstractTrees, Suppressor, LinearAlgebra
+Suppressor, LinearAlgebra
 import MutableArithmetics
 
 # load the test module
@@ -16,7 +16,6 @@ const JuMPC = JuMP.Containers
 const MOIUC = MOIU.CleverDicts
 const FGQ = FastGaussQuadrature
 const IOMT = InfiniteOpt.MeasureToolbox
-const LCRST = LeftChildRightSiblingTrees
 const MA = MutableArithmetics
 
 # Load in testing utilities
@@ -41,21 +40,21 @@ println("")
     include("general_variables.jl")
 end
 println("")
-@time @testset "Optimizer Setup Methods" begin include("optimizer_setup.jl") end
+@time @testset "Backend Setup Methods" begin include("backend_setup.jl") end
 println("")
 @time @testset "Macro Utilities" begin include("macro_utilities.jl") end
 println("")
 @time @testset "Parameter Methods" begin
-   @testset "Scalar" begin include("scalar_parameters.jl") end
-   @testset "Array" begin include("array_parameters.jl") end
+    @testset "Scalar" begin include("scalar_parameters.jl") end
+    @testset "Array" begin include("array_parameters.jl") end
 end
 println("")
 @time @testset "Variable Methods" begin
-   @testset "Infinite Variables" begin include("infinite_variables.jl") end
-   @testset "Point Variables" begin include("point_variables.jl") end
-   @testset "Finite Variables" begin include("finite_variables.jl") end
-   @testset "Info Constraints" begin include("variable_info.jl") end
-   @testset "Semi-Infinite Variables" begin include("semi_infinite_variables.jl") end
+    @testset "Infinite Variables" begin include("infinite_variables.jl") end
+    @testset "Point Variables" begin include("point_variables.jl") end
+    @testset "Finite Variables" begin include("finite_variables.jl") end
+    @testset "Semi-Infinite Variables" begin include("semi_infinite_variables.jl") end
+    @testset "Info Constraints" begin include("variable_info.jl") end
 end
 println("")
 @time @testset "Derivative Methods" begin include("derivatives.jl") end
@@ -92,15 +91,20 @@ println("")
     @testset "Model" begin include("TranscriptionOpt/model.jl") end
     @testset "Measures" begin include("TranscriptionOpt/measure.jl") end
     @testset "Transcribe" begin include("TranscriptionOpt/transcribe.jl") end
-    @testset "Optimize" begin include("TranscriptionOpt/optimize.jl") end
 end
 println("")
-@time @testset "Solution Methods" begin include("optimizer.jl") end
+@time @testset "Solution Methods" begin include("backend_mappings.jl") end
 println("")
 @time @testset "Solution Queries" begin include("results.jl") end
 println("")
+@time @testset "Model Copying" begin include("copy.jl") end
+println("")
 @time @testset "Extensions" begin include("extensions.jl") end
 println("")
+@time @testset "Extension Pkgs" begin 
+    @testset "InfiniteInterpolations" begin include("extensions/InfiniteInterpolations.jl") end
+    @testset "InfiniteMathOptAI" begin include("extensions/InfiniteMathOptAI.jl") end
+end
 println("----------------------------------------------------------------------------")
 println("-----------------------------TESTING COMPLETE!------------------------------")
 println("----------------------------------------------------------------------------")

@@ -28,7 +28,8 @@ end
 _expect_coeffs(x::Array) = ones(size(x)[end]) ./ size(x)[end]
 
 # Univariate distribution domain 
-function generate_expect_data(domain::InfiniteOpt.DistributionDomain, 
+function generate_expect_data(
+    domain::InfiniteOpt.DistributionDomain, 
     pref::InfiniteOpt.GeneralVariableRef, 
     num_supports;
     kwargs...
@@ -46,7 +47,8 @@ function generate_expect_data(domain::InfiniteOpt.DistributionDomain,
 end
 
 # Multivariate distribution domain 
-function generate_expect_data(domain::InfiniteOpt.MultiDistributionDomain, 
+function generate_expect_data(
+    domain::InfiniteOpt.MultiDistributionDomain, 
     prefs::Vector{InfiniteOpt.GeneralVariableRef}, 
     num_supports;
     kwargs...
@@ -65,7 +67,8 @@ function generate_expect_data(domain::InfiniteOpt.MultiDistributionDomain,
 end
 
 # Collection domain 
-function generate_expect_data(domain::InfiniteOpt.CollectionDomain, 
+function generate_expect_data(
+    domain::InfiniteOpt.CollectionDomain, 
     prefs::Vector{InfiniteOpt.GeneralVariableRef}, 
     num_supports;
     kwargs...
@@ -107,7 +110,8 @@ function _default_pdf(supp, lb, ub)
 end
 
 # Univariate interval domain
-function generate_expect_data(domain::InfiniteOpt.IntervalDomain, 
+function generate_expect_data(
+    domain::InfiniteOpt.IntervalDomain, 
     pref::InfiniteOpt.GeneralVariableRef, 
     num_supports;
     pdf::Function = InfiniteOpt.default_weight,
@@ -132,7 +136,7 @@ end
 
 """
     expect(expr::JuMP.AbstractJuMPScalar,
-           prefs::Union{GeneralVariableRef, AbstractArray{GeneralVariableRef};
+           prefs::Union{GeneralVariableRef, Array{GeneralVariableRef};
            [num_supports::Int = DefaultNumSupports])::GeneralVariableRef
 
 Makes a measure for `expr` based on its expectation with respect to `prefs`. For 
@@ -178,25 +182,18 @@ julia> expand(meas)
 0.5 f(0.6791074260357777) + 0.5 f(0.8284134829000359)
 ```
 """
-function expect(expr::JuMP.AbstractJuMPScalar,
-    prefs::Union{InfiniteOpt.GeneralVariableRef, AbstractArray{InfiniteOpt.GeneralVariableRef}};
+function expect(
+    expr::JuMP.AbstractJuMPScalar,
+    prefs::Union{InfiniteOpt.GeneralVariableRef, Array{InfiniteOpt.GeneralVariableRef}};
     num_supports::Int = InfiniteOpt.DefaultNumSupports,
     kwargs...
-    )::InfiniteOpt.GeneralVariableRef
+    )
     # check the inputs
     InfiniteOpt._check_params(prefs)
     dpref = InfiniteOpt.dispatch_variable_ref(first(prefs))
-    # update properly for single dependent parameters
-    if prefs isa InfiniteOpt.GeneralVariableRef && dpref isa InfiniteOpt.DependentParameterRef
-        if !(num_supports in [0, InfiniteOpt.DefaultNumSupports])
-            @warn("Cannot specify a nonzero `num_supports` for individual " *
-                  "dependent parameters.")
-        end
-        num_supports = 0
-    end
     # prepare the data
     domain = InfiniteOpt._parameter_domain(dpref)
-    vect_prefs = InfiniteOpt.Collections.vectorize(prefs)
+    vect_prefs, _ = InfiniteOpt.Collections.vectorize(prefs)
     data = generate_expect_data(domain, vect_prefs, num_supports; kwargs...)
     # make the measure
     return InfiniteOpt.measure(expr, data, name = "expect")
@@ -212,17 +209,18 @@ end
 An efficient wrapper for [`expect`](@ref). Please see its doc string more
 information.
 """
-macro expect(expr, prefs, args...)
-    _error(str...) = InfiniteOpt._macro_error(:expect, (expr, prefs, args...), 
-                                              str...)
-    extra, kwargs, _, _ = InfiniteOpt._extract_kwargs(args)
-    if length(extra) > 0
-        _error("Unexpected positional arguments." *
-               "Must be of form @expect(expr, prefs, kwargs...).")
-    end
+macro expect(args...)
+    error_fn = InfiniteOpt.JuMPC.build_error_fn(:expect, args, __source__)
+    pos_args, kwargs = InfiniteOpt.JuMPC.parse_macro_arguments(
+        error_fn, 
+        args, 
+        num_positional_args = 2
+    )
+    expr, prefs = pos_args
     expression = MutableArithmetics.rewrite_and_return(expr)
-    esc_kwargs = map(i -> esc(i), kwargs)
-    return :( expect($expression, $(esc(prefs)); ($(esc_kwargs...))) )
+    code = :( expect($expression, $(esc(prefs))) )
+    InfiniteOpt.JuMPC.add_additional_args(code, [], kwargs)
+    return code
 end
 
 """
@@ -237,9 +235,10 @@ A convenient wrapper for [`expect`](@ref). The unicode symbol `𝔼` is produced
 """
 function 𝔼(expr::JuMP.AbstractJuMPScalar,
     prefs::Union{InfiniteOpt.GeneralVariableRef, AbstractArray{InfiniteOpt.GeneralVariableRef}};
-    num_supports::Int = InfiniteOpt.DefaultNumSupports
-    )::InfiniteOpt.GeneralVariableRef
-    return expect(expr, prefs, num_supports = num_supports)
+    num_supports::Int = InfiniteOpt.DefaultNumSupports,
+    kwargs...
+    )
+    return expect(expr, prefs; num_supports = num_supports, kwargs...)
 end
 
 """
@@ -251,15 +250,16 @@ end
 A convenient wrapper for [`@expect`](@ref). The unicode symbol `𝔼` is produced by 
 `\\bbE`.
 """
-macro 𝔼(expr, prefs, args...)
-    _error(str...) = InfiniteOpt._macro_error(:𝔼, (expr, prefs, args...), 
-                                              str...)
-    extra, kwargs, _, _ = InfiniteOpt._extract_kwargs(args)
-    if length(extra) > 0
-        _error("Unexpected positional arguments." *
-               "Must be of form @𝔼(expr, prefs, kwargs...).")
-    end
+macro 𝔼(args...)
+    error_fn = InfiniteOpt.JuMPC.build_error_fn(:𝔼, args, __source__)
+    pos_args, kwargs = InfiniteOpt.JuMPC.parse_macro_arguments(
+        error_fn, 
+        args, 
+        num_positional_args = 2
+    )
+    expr, prefs = pos_args
     expression = MutableArithmetics.rewrite_and_return(expr)
-    esc_kwargs = map(i -> esc(i), kwargs)
-    return :( expect($expression, $(esc(prefs)); ($(esc_kwargs...))) )
+    code = :( expect($expression, $(esc(prefs))) )
+    InfiniteOpt.JuMPC.add_additional_args(code, [], kwargs)
+    return code
 end

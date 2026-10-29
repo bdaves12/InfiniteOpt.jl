@@ -2,62 +2,99 @@
 #                   CORE DISPATCHVARIABLEREF METHOD EXTENSIONS
 ################################################################################
 # Extend dispatch_variable_ref
-function dispatch_variable_ref(model::InfiniteModel,
-                               index::DependentParameterIndex
-                               )::DependentParameterRef
+function dispatch_variable_ref(
+    model::InfiniteModel,
+    index::DependentParameterIndex
+    )
     return DependentParameterRef(model, index)
 end
 
 # Extend _add_data_object
-function _add_data_object(model::InfiniteModel,
-                          object::MultiParameterData
-                          )::DependentParametersIndex
+function _add_data_object(
+    model::InfiniteModel,
+    object::MultiParameterData
+    )
     index = MOIUC.add_item(model.dependent_params, object)
-    push!(model.param_object_indices, index)
+    push!(model.param_group_indices, index)
     return index
 end
 
 # Extend _data_dictionary (type based)
-function _data_dictionary(model::InfiniteModel,
-    ::Type{DependentParameters})::MOIUC.CleverDict
+function _data_dictionary(
+    model::InfiniteModel,
+    ::Type{DependentParameters}
+    )
     return model.dependent_params
 end
 
 # Extend _data_dictionary (ref based)
-function _data_dictionary(pref::DependentParameterRef)::MOIUC.CleverDict
+function _data_dictionary(pref::DependentParameterRef)
     return JuMP.owner_model(pref).dependent_params
 end
 
 # Extend _data_object
-function _data_object(pref::DependentParameterRef)::MultiParameterData
+function _data_object(pref::DependentParameterRef)
     object = get(_data_dictionary(pref), JuMP.index(pref).object_index, nothing)
-    object === nothing && error("Invalid dependent parameter reference, cannot find " *
-                           "corresponding parameter in the model. This is likely " *
-                           "caused by using the reference of a deleted parameter.")
+    if isnothing(object) 
+        error("Invalid dependent parameter reference, cannot find ",
+              "corresponding parameter in the model. This is likely ",
+              "caused by using the reference of a deleted parameter.")
+    end
     return object
 end
 
-# Extend _core_variable_object
-function _core_variable_object(pref::DependentParameterRef)::DependentParameters
+"""
+    core_object(pref::DependentParameterRef)::DependentParameters
+
+Retrieve the underlying core `DependentParameters` object for `pref`. Note that
+this object applies to `pref` and the other infinite parameters it is coupled
+with. This is intended as an advanced method for developers.
+"""
+function core_object(pref::DependentParameterRef)
     return _data_object(pref).parameters
 end
 
 # Return the number of dependent parameters involved
-function _num_parameters(pref::DependentParameterRef)::Int
+function _num_parameters(pref::DependentParameterRef)
     return length(_data_object(pref).names)
 end
 
 # Extend _delete_data_object
-function _delete_data_object(vref::DependentParameterRef)::Nothing
+function _delete_data_object(vref::DependentParameterRef)
     delete!(_data_dictionary(vref), JuMP.index(vref).object_index)
     return
+end
+
+# Extend Base.copy for DependentParameters
+function Base.copy(p::DependentParameters)
+    new_supports = DataStructures.OrderedDict{Vector{Float64}, Set{DataType}}(
+                       copy(k) => copy(v) for (k, v) in p.supports)
+    return DependentParameters(p.domain, new_supports, p.sig_digits)
+end
+
+# Extend Base.copy for MultiParameterData
+function Base.copy(d::MultiParameterData)
+    return MultiParameterData(d.parameters, d.group_int_idx,
+                              copy(d.names), copy(d.parameter_func_indices),
+                              copy(d.infinite_var_indices),
+                              [copy(v) for v in d.measure_indices],
+                              [copy(v) for v in d.constraint_indices],
+                              d.has_internal_supports)
 end
 
 ################################################################################
 #                             PARAMETER DEFINITION
 ################################################################################
+## Enforce the that only a Vector or Matrix container is used
+_enforce_parameter_container_type(_error, ::Union{<:Vector, <:Matrix}) = nothing
+function _enforce_parameter_container_type(_error, ::C) where {C}
+    _error("Only vectors and matrices are supported for dependent infinite " *
+           "parameters, but got container of type `$C`. If container should be " *
+           "a vector or matrix, try setting `container = Array`.")
+end
+
 # Check that multi-dimensional domains are all the same
-function _check_same_domain(_error::Function, domains)::Nothing 
+function _check_same_domain(_error::Function, domains)
     if !_allequal(domains)
         _error("Conflicting infinite domains. Only one multi-dimensional ",
                "can be specified. Otherwise, scalar domains can be used ",
@@ -67,63 +104,42 @@ function _check_same_domain(_error::Function, domains)::Nothing
 end
 
 ## Use domain type dispatch to make the proper InfiniteArrayDomain
-# MultiDistributionDomain with non SparseAxisArray
+# MultiDistributionDomain
 function _make_array_domain(
     _error::Function,
-    domains::Vector{T},
-    inds::Collections.ContainerIndices
-    )::T where {T <: MultiDistributionDomain}
+    domains::Vector{<:MultiDistributionDomain},
+    info::Tuple{Int, Int}
+    )
     _check_same_domain(_error, domains)
     dist = first(domains).distribution
-    if size(dist) != size(inds)
+    param_size = (length(domains)/info[2], info[2]) # ignore the 2nd element if vector
+    if any(ds != ps for (ds, ps) in zip(param_size, size(dist)))
         _error("The dimensions of the parameters are incompatible with the ",
                "specified multi-dimensional distribution $(dist).")
     end
     return first(domains)
 end
 
-# MultiDistributionDomain with SparseAxisArray
+# CollectionDomain
 function _make_array_domain(
     _error::Function,
-    domains::Vector{<:MultiDistributionDomain},
-    inds::Collections.ContainerIndices{1, <:Vector}
+    domains::Vector{<:CollectionDomain},
+    info::Tuple{Int, Int}
     )
-    _error("Cannot specify multiple-dimensional distribution domain with a ",
-           "`SparseAxisArray` of dependent infinite parameters.")
-end
-
-# CollectionDomain with non SparseAxisArray
-function _make_array_domain(
-    _error::Function,
-    domains::Vector{T},
-    inds::Collections.ContainerIndices
-    )::T where {T <: CollectionDomain}
     _check_same_domain(_error, domains)
-    if length(collection_domains(first(domains))) != length(inds)
+    if length(collection_domains(first(domains))) != length(domains)
         _error("The dimensions of the parameters and the specified ",
                "`CollectionDomain` do not match.")
     end
     return first(domains)
 end
 
-# CollectionDomain with SparseAxisArray
-function _make_array_domain(
-    _error::Function,
-    domains::Vector{<:CollectionDomain},
-    inds::Collections.ContainerIndices{1, <:Vector}
-    )
-    _error("Cannot specify a `CollectionDomain` with a `SparseAxisArray` ",
-           "of dependent infinite parameters, consider instead specifying ",
-           "the `InfiniteScalarDomain` for each parameter using the `domain` ",
-           "keyword and the appropriate indices.")
-end
-
 # Fallback for other InfiniteArrayDomains
 function _make_array_domain(
     _error::Function,
-    domains::Vector{T},
-    inds::Collections.ContainerIndices
-    )::T where {T <: InfiniteArrayDomain}
+    domains::Vector{<:InfiniteArrayDomain},
+    info::Tuple{Int, Int}
+    )
     _check_same_domain(_error, domains)
     return first(domains)
 end
@@ -131,84 +147,106 @@ end
 # InfiniteScalarDomains
 function _make_array_domain(
     _error::Function,
-    domains::Vector{T},
-    inds::Collections.ContainerIndices
-    )::CollectionDomain{T} where {T <: InfiniteScalarDomain}
+    domains::Vector{<:InfiniteScalarDomain},
+    info::Tuple{Int, Int}
+    )
     return CollectionDomain(domains)
 end
 
 # Generic fallback
-function _make_array_domain(_error::Function, domains, inds)
+function _make_array_domain(_error::Function, domains, info)
     _error("Unrecognized infinite domain format.")
 end
 
 ## Process the supports format via dispatch
 # Vector{<:Real}
-function _process_supports(
+function _process_array_supports(
     _error::Function, 
     supps::Vector{<:Real},
     domain,
     sig_digits
-    )::Dict{Vector{Float64}, Set{DataType}}
+    )
+    supps = round.(supps, sigdigits = sig_digits)
     if !supports_in_domain(reshape(supps, length(supps), 1), domain) 
         _error("Support violates the infinite domain.")
     end
-    supps = round.(supps, sigdigits = sig_digits)
-    return Dict{Vector{Float64}, Set{DataType}}(supps => Set([UserDefined]))
+    return DataStructures.OrderedDict{Vector{Float64}, Set{DataType}}(
+        supps => Set([UserDefined])
+        )
+end
+
+# Vector{Matrix{<:Real}}
+function _process_array_supports(
+    _error::Function, 
+    vect_supps::Vector{<:Matrix{<:Real}},
+    domain,
+    sig_digits
+    )
+    supps = first(vect_supps)
+    if any(arr != supps for arr in vect_supps)
+        _error("Cannot specify a matrix of supports for individual infinite parameters.")
+    elseif size(supps, 1) != length(vect_supps)
+        _error("Matrix of supports does not match the dimension of infinite parameters. " * 
+               "Ensure the number of rows is equal to the number of parameters.")
+    end
+    rounded_supps = round.(supps, sigdigits = sig_digits)
+    if !supports_in_domain(rounded_supps, domain) 
+        _error("Supports violate the infinite domain.")
+    end
+    return DataStructures.OrderedDict{Vector{Float64}, Set{DataType}}(
+        s => Set([UserDefined]) for s in eachcol(rounded_supps)
+        )
 end
 
 # Vector{Vector{<:Real}}
-function _process_supports(
+function _process_array_supports(
     _error::Function, 
     vect_supps::Vector{<:Vector{<:Real}},
     domain,
     sig_digits
-    )::Dict{Vector{Float64}, Set{DataType}}
+    )
     len = length(first(vect_supps))
     if any(length(s) != len for s in vect_supps)
         _error("Inconsistent support dimensions.")
     end
     supps = permutedims(reduce(hcat, vect_supps))
+    supps = round.(supps, sigdigits = sig_digits)
     if !supports_in_domain(supps, domain) 
         _error("Supports violate the infinite domain.")
     end
-    supps = round.(supps, sigdigits = sig_digits)
-    return Dict{Vector{Float64}, Set{DataType}}(@views supps[:, i] =>
-                                    Set([UserDefined]) for i in 1:size(supps, 2))
+    return DataStructures.OrderedDict{Vector{Float64}, Set{DataType}}(
+        s => Set([UserDefined]) for s in eachcol(supps)
+        )
 end
 
-## Use dispatch to make the formatting of the derivative method vector 
-# Valid vector 
-function _process_derivative_methods(
-    _error::Function,
-    methods::V,
-    domains
-    )::V where {V <: Vector{<:NonGenerativeDerivativeMethod}}
-    return methods
+# Vector of other collections
+function _process_array_supports(
+    _error::Function, 
+    vect_supps::Vector{<:Union{UnitRange{T}, StepRange{T}, StepRangeLen{T}, NTuple{N, T}, Base.Generator}},
+    domain,
+    sig_digits
+    ) where {N, T <: Real}
+    return _process_array_supports(_error, collect.(vect_supps), domain, sig_digits)
 end
 
-# Default or invalid vector 
-function _process_derivative_methods(
-    _error::Function,
-    methods::Vector,
-    domains
+# Fallback
+function _process_array_supports(
+    _error::Function, 
+    vect_supps,
+    domain,
+    sig_digits
     )
-    if isempty(methods)
-        return map(i -> DefaultDerivativeMethod, domains)
-    end
-    _error("Can only subtypes of `NonGenerativeDerivativeMethod` can be ",
-           "used with the `derivative_method` keywords argument.") 
+    error("Unrecognized support input. Please consult the docs.")
 end
 
 # A helper function for dependent parameter builds in @infinite_parameter
 function _build_parameters(
     _error::Function,
     domains::Vector,
-    orig_inds::Collections.ContainerIndices;
+    vect_info::Tuple{Int, Int};
     num_supports::Int = 0,
     sig_digits::Int = DefaultSigDigits,
-    supports::Union{Vector{<:Real}, Vector{<:Vector{<:Real}}} = Float64[],
-    derivative_method::Vector = [],
+    supports = Float64[],
     extra_kwargs...
     )
     # error with extra keywords
@@ -216,32 +254,35 @@ function _build_parameters(
        _error("Unrecognized keyword argument $kwarg")
     end
     # process the infinite domain
-    domain = _make_array_domain(_error, domains, orig_inds)
+    domain = _make_array_domain(_error, domains, vect_info)
+    domain = round_domain(domain, sig_digits)
     # we have supports
     if !isempty(supports)
-        supp_dict = _process_supports(_error, supports, domain, sig_digits)
+        supp_dict = _process_array_supports(_error, supports, domain, sig_digits)
     # we want to generate supports
     elseif !iszero(num_supports)
-        supps, label = generate_support_values(domain, 
-                                               num_supports = num_supports,
-                                               sig_digits = sig_digits)
-        supp_dict = Dict{Vector{Float64}, Set{DataType}}(@views supps[:, i] =>
-                                          Set([label]) for i in 1:size(supps, 2))
+        supps, label = generate_support_values(
+            domain, 
+            num_supports = num_supports,
+            sig_digits = sig_digits
+            )
+        supp_dict = DataStructures.OrderedDict{Vector{Float64}, Set{DataType}}(
+            s => Set([label]) for s in eachcol(supps)
+            )
     # no supports are specified
     else
-        supp_dict = Dict{Vector{Float64}, Set{DataType}}()
+        supp_dict = DataStructures.OrderedDict{Vector{Float64}, Set{DataType}}()
     end
-    # check the derivative methods
-    methods = _process_derivative_methods(_error, derivative_method, domains)
     # make the parameter object
-    return DependentParameters(domain, supp_dict, sig_digits, methods)
+    return DependentParameters(domain, supp_dict, sig_digits)
 end
 
 """
-    add_parameters(model::InfiniteModel,
-                   params::DependentParameters,
-                   names::Vector{String}
-                   )::Vector{GeneralVariableRef}
+    add_parameters(
+        model::InfiniteModel,
+        params::DependentParameters,
+        names::Vector{String}
+        )::Vector{GeneralVariableRef}
 
 Add `params` to `model` and return an appropriate container of the dependent
 infinite parameter references. This is intended as an internal method for use
@@ -270,7 +311,7 @@ function add_parameters(
     model::InfiniteModel,
     params::DependentParameters,
     names::Vector{String}
-    )::Vector{GeneralVariableRef}
+    )
     # get the number of parameters
     num_params = length(params.domain)
     # process the names
@@ -278,11 +319,8 @@ function add_parameters(
         error("The amounts of names and dependent parameters do not match.")
     end
     # make the parameter model object
-    obj_num = length(_param_object_indices(model)) + 1
-    first_param_num = model.last_param_num + 1
-    last_param_num = model.last_param_num += num_params
-    param_nums = first_param_num:last_param_num
-    data_object = MultiParameterData(params, obj_num, param_nums, names)
+    group_int_idx = length(parameter_group_indices(model)) + 1
+    data_object = MultiParameterData(params, group_int_idx, names)
     # add the data object to the model and make the references
     obj_index = _add_data_object(model, data_object)
     # reset the name dictionary 
@@ -295,7 +333,7 @@ end
 #                                  NAMING
 ################################################################################
 # Get the parameter index in the DependentParameters object
-_param_index(pref::DependentParameterRef)::Int = JuMP.index(pref).param_index
+_param_index(pref::DependentParameterRef) = JuMP.index(pref).param_index
 
 """
     JuMP.name(pref::DependentParameterRef)::String
@@ -309,9 +347,9 @@ julia> name(pref)
 "par_name"
 ```
 """
-function JuMP.name(pref::DependentParameterRef)::String
+function JuMP.name(pref::DependentParameterRef)
     object = get(_data_dictionary(pref), JuMP.index(pref).object_index, nothing)
-    return object === nothing ? "" : object.names[_param_index(pref)]
+    return isnothing(object) ? "" : object.names[_param_index(pref)]
 end
 
 """
@@ -328,7 +366,7 @@ julia> name(vref)
 "para_name"
 ```
 """
-function JuMP.set_name(pref::DependentParameterRef, name::String)::Nothing
+function JuMP.set_name(pref::DependentParameterRef, name::String)
     _data_object(pref).names[_param_index(pref)] = name
     JuMP.owner_model(pref).name_to_param = nothing
     return
@@ -338,33 +376,23 @@ end
 #                           PARAMETER DEPENDENCIES
 ################################################################################
 # Extend _infinite_variable_dependencies
-function _infinite_variable_dependencies(pref::DependentParameterRef
-    )::Vector{InfiniteVariableIndex}
+function _infinite_variable_dependencies(pref::DependentParameterRef)
     return _data_object(pref).infinite_var_indices
 end
 
 # Extend _parameter_function_dependencies
-function _parameter_function_dependencies(pref::DependentParameterRef
-    )::Vector{ParameterFunctionIndex}
+function _parameter_function_dependencies(pref::DependentParameterRef)
     return _data_object(pref).parameter_func_indices
 end
 
 # Extend _measure_dependencies
-function _measure_dependencies(pref::DependentParameterRef
-    )::Vector{MeasureIndex}
+function _measure_dependencies(pref::DependentParameterRef)
     return _data_object(pref).measure_indices[_param_index(pref)]
 end
 
 # Extend _constraint_dependencies
-function _constraint_dependencies(pref::DependentParameterRef
-    )::Vector{InfOptConstraintIndex}
+function _constraint_dependencies(pref::DependentParameterRef)
     return _data_object(pref).constraint_indices[_param_index(pref)]
-end
-
-# Extend _derivative_dependencies
-function _derivative_dependencies(pref::DependentParameterRef
-    )::Vector{DerivativeIndex}
-    return _data_object(pref).derivative_indices[_param_index(pref)]
 end
 
 """
@@ -379,7 +407,7 @@ julia> used_by_infinite_variable(pref)
 true
 ```
 """
-function used_by_infinite_variable(pref::DependentParameterRef)::Bool
+function used_by_infinite_variable(pref::DependentParameterRef)
     return !isempty(_infinite_variable_dependencies(pref))
 end
 
@@ -395,7 +423,7 @@ julia> used_by_parameter_function(pref)
 true
 ```
 """
-function used_by_parameter_function(pref::DependentParameterRef)::Bool
+function used_by_parameter_function(pref::DependentParameterRef)
     return !isempty(_parameter_function_dependencies(pref))
 end
 
@@ -411,7 +439,7 @@ julia> used_by_measure(pref)
 true
 ```
 """
-function used_by_measure(pref::DependentParameterRef)::Bool
+function used_by_measure(pref::DependentParameterRef)
     return !isempty(_measure_dependencies(pref))
 end
 
@@ -427,28 +455,17 @@ julia> used_by_constraint(pref)
 false
 ```
 """
-function used_by_constraint(pref::DependentParameterRef)::Bool
+function used_by_constraint(pref::DependentParameterRef)
     return !isempty(_constraint_dependencies(pref))
 end
 
-"""
-    used_by_derivative(pref::DependentParameterRef)::Bool
-
-Return a `Bool` indicating if the dependent infinite parameter `pref` is used by
-a derivative.
-
-**Example**
-```julia-repl
-julia> used_by_derivative(pref)
-false
-```
-"""
-function used_by_derivative(pref::DependentParameterRef)::Bool
-    return !isempty(_derivative_dependencies(pref))
+# Extend used by derivative
+function used_by_derivative(pref::DependentParameterRef)
+    return false
 end
 
 # Extend used by objective
-used_by_objective(pref::DependentParameterRef)::Bool = false
+used_by_objective(pref::DependentParameterRef) = false
 
 """
     is_used(pref::DependentParameterRef)::Bool
@@ -462,189 +479,78 @@ julia> is_used(pref)
 true
 ```
 """
-function is_used(pref::DependentParameterRef)::Bool
+function is_used(pref::DependentParameterRef)
     return used_by_measure(pref) || used_by_constraint(pref) ||
-           used_by_infinite_variable(pref) || used_by_derivative(pref) ||
-           used_by_parameter_function(pref)
+           used_by_infinite_variable(pref) || used_by_parameter_function(pref)
 end
 
 ################################################################################
 #                          PARAMETER OBJECT METHODS
 ################################################################################
-# Extend _parameter_number
-function _parameter_number(pref::DependentParameterRef)::Int
-    return _data_object(pref).parameter_nums[_param_index(pref)]
+"""
+    parameter_group_int_index(pref::DependentParameterRef)::Int
+
+Return the infinite parameter group integer index that corresponds to `pref`.
+"""
+function parameter_group_int_index(pref::DependentParameterRef)
+    return _data_object(pref).group_int_idx
 end
 
-# Extend _parameter_numbers
-function _parameter_numbers(pref::DependentParameterRef)::Vector{Int}
-    return [_parameter_number(pref)]
-end
-
-# Extend _object_number
-function _object_number(pref::DependentParameterRef)::Int
-    return _data_object(pref).object_num
-end
-
-# Extend _object_numbers
-function _object_numbers(pref::DependentParameterRef)::Vector{Int}
-    return [_object_number(pref)]
+# Extend parameter_group_int_indices
+function parameter_group_int_indices(pref::DependentParameterRef)
+    return [parameter_group_int_index(pref)]
 end
 
 ## Set helper methods for adapting data_objects with parametric changes 
 # No change needed 
 function _adaptive_data_update(pref::DependentParameterRef, params::P, 
-    data::MultiParameterData{P})::Nothing where {P <: DependentParameters}
+    data::MultiParameterData{P}) where {P <: DependentParameters}
     data.parameters = params
     return
 end
 
 # Reconstruction is necessary 
 function _adaptive_data_update(pref::DependentParameterRef, params::P1, 
-    data::MultiParameterData{P2})::Nothing  where {P1, P2}
-    new_data = MultiParameterData(params, data.object_num, data.parameter_nums, 
-                                  data.names, data.parameter_func_indices,
-                                  data.infinite_var_indices, 
-                                  data.derivative_indices, data.measure_indices,
-                                  data.constraint_indices,
-                                  data.has_internal_supports, 
-                                  data.has_deriv_constrs)
+    data::MultiParameterData{P2})  where {P1, P2}
+    new_data = MultiParameterData(
+        params, 
+        data.group_int_idx, 
+        data.names, 
+        data.parameter_func_indices,
+        data.infinite_var_indices, 
+        data.measure_indices,
+        data.constraint_indices,
+        data.has_internal_supports
+    )
     _data_dictionary(pref)[JuMP.index(pref).object_index] = new_data
     return
 end
 
-# Extend _set_core_variable_object
-function _set_core_variable_object(pref::DependentParameterRef,
-                                   params::DependentParameters)::Nothing
+# Extend _set_core_object
+function _set_core_object(
+    pref::DependentParameterRef,
+    params::DependentParameters
+    )
     _adaptive_data_update(pref, params, _data_object(pref))
     return
 end
 
 ################################################################################
-#                        DERIVATIVE METHOD FUNCTIONS
+#                     GENERATIVE SUPPORT FUNCTIONS
 ################################################################################
 # Extend fallback for dependent parameters
-function has_generative_supports(pref::DependentParameterRef)::Bool
+function has_generative_supports(pref::DependentParameterRef)
     return false
 end
 
-# Extend fallback for dependent parameters
-function _set_has_generative_supports(pref::DependentParameterRef, 
-                                      status::Bool)::Nothing
-    return
-end
-
 # Extend add_generative_supports
-function add_generative_supports(pref::DependentParameterRef)::Nothing
+function add_generative_supports(pref::DependentParameterRef)
     return
 end
 
 # Extend has derivative constraints 
-function has_derivative_constraints(pref::DependentParameterRef)::Bool 
-    return _data_object(pref).has_deriv_constrs[_param_index(pref)]
-end
-
-# Extend setting if has derivative constraints 
-function _set_has_derivative_constraints(pref::DependentParameterRef, 
-                                         status::Bool)::Nothing 
-    _data_object(pref).has_deriv_constrs[_param_index(pref)] = status
-    return
-end
-
-# Get the raw derivative method vector
-function _derivative_methods(pref::DependentParameterRef)
-    return _core_variable_object(pref).derivative_methods
-end
-
-"""
-    derivative_method(pref::DependentParameterRef)::NonGenerativeDerivativeMethod
-
-Returns the numerical derivative evaluation method employed with `pref` when it 
-is used as an operator parameter in a derivative.
-
-**Example**
-```julia-repl
-julia> derivative_method(pref) 
-FiniteDifference
-```
-"""
-function derivative_method(pref::DependentParameterRef)::NonGenerativeDerivativeMethod
-    return _derivative_methods(pref)[_param_index(pref)]
-end
-
-## Define helper methods for setting the derivative method efficiently
-# Compatible with vector type 
-function _adaptive_method_update(pref, 
-    p::DependentParameters{S, M1}, 
-    method::M2
-    )::Nothing where {S, M1 <: NonGenerativeDerivativeMethod, M2 <: M1}
-    p.derivative_methods[_param_index(pref)] = method
-    return
-end
-
-# Not compatible
-function _adaptive_method_update(pref, 
-    p::DependentParameters{S, M1}, 
-    method::M2
-    )::Nothing where {S, M1, M2}
-    methods = p.derivative_methods
-    new_methods = [i == _param_index(pref) ? method : m 
-                   for (i, m) in enumerate(methods)]
-    new_params = DependentParameters(p.domain, p.supports, p.sig_digits, new_methods)
-    _set_core_variable_object(pref, new_params)
-    return
-end
-
-"""
-    set_derivative_method(pref::DependentParameterRef, 
-                          method::NonGenerativeDerivativeMethod)::Nothing
-
-Specfies the desired derivative evaluation method `method` for derivatives that are 
-taken with respect to `pref`. Errors if `method` is generative (i.e., it requires 
-the definition of additional supports)
-
-**Example**
-```julia-repl
-julia> set_derivative_method(d, FiniteDifference())
-
-```
-"""
-function set_derivative_method(pref::DependentParameterRef, 
-    method::AbstractDerivativeMethod
-    )::Nothing
-    if !(method isa NonGenerativeDerivativeMethod)
-        error("Must specify a subtype of `NonGenerativeDerivativeMethod` for " *
-              "for a dependent parameter.")
-    end
-    _adaptive_method_update(pref, _core_variable_object(pref), method)
-    _reset_derivative_constraints(pref)
-    if is_used(pref)
-        set_optimizer_model_ready(JuMP.owner_model(pref), false)
-    end
-    return
-end
-
-"""
-    set_all_derivative_methods(model::InfiniteModel, 
-                               method::AbstractDerivativeMethod)::Nothing
-
-Sets the desired evaluation method `method` for all the derivatives currently added 
-to `model`. Note that this is done with respect to the infinite parameters. Errors 
-if a generative method is specified and the model contains dependent parameters.
-
-**Example**
-```julia-repl
-julia> set_all_derivative_methods(model, OrthogonalCollocation(2))
-
-```
-"""
-function set_all_derivative_methods(model::InfiniteModel, 
-    method::AbstractDerivativeMethod
-    )::Nothing
-    for pref in all_parameters(model, InfiniteParameter)
-        set_derivative_method(pref, method)
-    end
-    return
+function has_derivative_constraints(pref::DependentParameterRef)
+    return false
 end
 
 ################################################################################
@@ -652,14 +558,12 @@ end
 ################################################################################
 ## Get the individual infinite domain if possible
 # raw_domain
-function _parameter_domain(pref::DependentParameterRef)::InfiniteArrayDomain
-    return _core_variable_object(pref).domain
+function _parameter_domain(pref::DependentParameterRef)
+    return core_object(pref).domain
 end
 
 # CollectionDomain
-function _parameter_domain(domain::CollectionDomain{S},
-                        pref::DependentParameterRef
-                        )::S where {S <: InfiniteScalarDomain}
+function _parameter_domain(domain::CollectionDomain, pref::DependentParameterRef)
     return collection_domains(domain)[_param_index(pref)]
 end
 
@@ -683,14 +587,12 @@ julia> infinite_domain(x[1])
 [-1, 1]
 ```
 """
-function infinite_domain(pref::DependentParameterRef)::InfiniteScalarDomain
+function infinite_domain(pref::DependentParameterRef)
     return _parameter_domain(_parameter_domain(pref), pref)
 end
 
 # Check that prefs are complete
-function _check_complete_param_array(
-    prefs::AbstractArray{<:DependentParameterRef}
-    )::Nothing
+function _check_complete_param_array(prefs::Array{<:DependentParameterRef})
     if length(prefs) != _num_parameters(first(prefs))
         error("Dimensions of parameter container and the infinite domain do not " *
               "match, ensure all related dependent parameters are included.")
@@ -699,7 +601,7 @@ function _check_complete_param_array(
 end
 
 """
-    infinite_domain(prefs::AbstractArray{<:DependentParameterRef})::InfiniteArrayDomain
+    infinite_domain(prefs::Array{<:DependentParameterRef})::InfiniteArrayDomain
 
 Return the infinite domain associated with the container of infinite dependent
 parameters `prefs`. Errors if the container `prefs` is incomplete.
@@ -714,29 +616,23 @@ dim: 2
 )
 ```
 """
-function infinite_domain(prefs::AbstractArray{<:DependentParameterRef}
-                      )::InfiniteArrayDomain
+function infinite_domain(prefs::Array{<:DependentParameterRef})
     _check_complete_param_array(prefs)
     return _parameter_domain(first(prefs))
 end
 
 # Update the underlying domain and delete the supports
-function _update_parameter_domain(pref::DependentParameterRef,
-                               new_domain::InfiniteArrayDomain)::Nothing
-    old_params = _core_variable_object(pref)
-    new_supports = Dict{Vector{Float64}, Set{DataType}}()
+function _update_parameter_domain(
+    pref::DependentParameterRef,
+    new_domain::InfiniteArrayDomain
+    )
+    new_supports = DataStructures.OrderedDict{Vector{Float64}, Set{DataType}}()
     sig_figs = significant_digits(pref)
-    methods = _derivative_methods(pref)
-    new_params = DependentParameters(new_domain, new_supports, sig_figs, methods)
-    _set_core_variable_object(pref, new_params)
-    for i in 1:length(new_domain)
-        idx = DependentParameterIndex(JuMP.index(pref).object_index, i)
-        p = DependentParameterRef(JuMP.owner_model(pref), idx)
-        _reset_derivative_constraints(p)
-    end
+    new_params = DependentParameters(new_domain, new_supports, sig_figs)
+    _set_core_object(pref, new_params)
     _set_has_internal_supports(pref, false)
     if is_used(pref)
-        set_optimizer_model_ready(JuMP.owner_model(pref), false)
+        set_transformation_backend_ready(JuMP.owner_model(pref), false)
     end
     return
 end
@@ -759,8 +655,10 @@ julia> infinite_domain(x[1])
 [0, 2]
 ```
 """
-function set_infinite_domain(pref::DependentParameterRef,
-                          domain::InfiniteScalarDomain)::Nothing
+function set_infinite_domain(
+    pref::DependentParameterRef,
+    domain::InfiniteScalarDomain
+    )
     old_domain = _parameter_domain(pref)
     if !(old_domain isa CollectionDomain)
         error("Cannot set the individual infinite domain of $pref if the " *
@@ -770,14 +668,16 @@ function set_infinite_domain(pref::DependentParameterRef,
               "a measure.")
     end
     param_idx = _param_index(pref)
-    new_domain = CollectionDomain([i != param_idx ? collection_domains(old_domain)[i] : domain
-                             for i in eachindex(collection_domains(old_domain))])
+    new_domain = CollectionDomain(
+        [i != param_idx ? collection_domains(old_domain)[i] : domain
+        for i in eachindex(collection_domains(old_domain))]
+        )
     _update_parameter_domain(pref, new_domain)
     return
 end
 
 """
-    set_infinite_domain(prefs::AbstractArray{<:DependentParameterRef},
+    set_infinite_domain(prefs::Array{<:DependentParameterRef},
                      domain::InfiniteArrayDomain)::Nothing
 
 Specify the multi-dimensional infinite domain of the dependent infinite parameters
@@ -791,8 +691,10 @@ measures.
 julia> set_infinite_domain(x, CollectionDomain([IntervalDomain(0, 1), IntervalDomain(0, 2)]))
 ```
 """
-function set_infinite_domain(prefs::AbstractArray{<:DependentParameterRef},
-                          domain::InfiniteArrayDomain)::Nothing
+function set_infinite_domain(
+    prefs::Array{<:DependentParameterRef},
+    domain::InfiniteArrayDomain
+    )
     if any(used_by_measure(pref) for pref in prefs)
         error("Cannot override the infinite domain of $prefs since it is used by " *
               "a measure.")
@@ -817,7 +719,7 @@ julia> has_lower_bound(x[1])
 true
 ```
 """
-function JuMP.has_lower_bound(pref::DependentParameterRef)::Bool
+function JuMP.has_lower_bound(pref::DependentParameterRef)
     domain = _parameter_domain(pref)
     if domain isa CollectionDomain
         return JuMP.has_lower_bound(collection_domains(domain)[_param_index(pref)])
@@ -839,7 +741,7 @@ julia> lower_bound(x[1])
 0.0
 ```
 """
-function JuMP.lower_bound(pref::DependentParameterRef)::Number
+function JuMP.lower_bound(pref::DependentParameterRef)
     if !JuMP.has_lower_bound(pref)
         error("Parameter $(pref) does not have a lower bound.")
     end
@@ -864,7 +766,7 @@ julia> lower_bound(t)
 -1.0
 ```
 """
-function JuMP.set_lower_bound(pref::DependentParameterRef, lower::Real)::Nothing
+function JuMP.set_lower_bound(pref::DependentParameterRef, lower::Real)
     domain = infinite_domain(pref)
     new_domain = JuMP.set_lower_bound(domain, lower)
     set_infinite_domain(pref, new_domain)
@@ -886,8 +788,8 @@ julia> has_upper_bound(x[1])
 true
 ```
 """
-function JuMP.has_upper_bound(pref::DependentParameterRef)::Bool
-    domain = _core_variable_object(pref).domain
+function JuMP.has_upper_bound(pref::DependentParameterRef)
+    domain = core_object(pref).domain
     if domain isa CollectionDomain
         return JuMP.has_upper_bound(collection_domains(domain)[_param_index(pref)])
     else
@@ -908,7 +810,7 @@ julia> upper_bound(x[1])
 0.0
 ```
 """
-function JuMP.upper_bound(pref::DependentParameterRef)::Number
+function JuMP.upper_bound(pref::DependentParameterRef)
     if !JuMP.has_upper_bound(pref)
         error("Parameter $(pref) does not have a upper bound.")
     end
@@ -933,7 +835,7 @@ julia> upper_bound(t)
 -1.0
 ```
 """
-function JuMP.set_upper_bound(pref::DependentParameterRef, upper::Real)::Nothing
+function JuMP.set_upper_bound(pref::DependentParameterRef, upper::Real)
     domain = infinite_domain(pref)
     new_domain = JuMP.set_upper_bound(domain, upper)
     set_infinite_domain(pref, new_domain)
@@ -944,9 +846,8 @@ end
 #                              SUPPORT METHODS
 ################################################################################
 # Get the raw supports
-function _parameter_supports(pref::DependentParameterRef
-                             )::Dict{Vector{Float64}, Set{DataType}}
-    return _core_variable_object(pref).supports
+function _parameter_supports(pref::DependentParameterRef)
+    return core_object(pref).supports
 end
 
 """
@@ -960,13 +861,15 @@ julia> significant_digits(x[1])
 12
 ```
 """
-function significant_digits(pref::DependentParameterRef)::Int
-    return _core_variable_object(pref).sig_digits
+function significant_digits(pref::DependentParameterRef)
+    return core_object(pref).sig_digits
 end
 
 """
-    num_supports(pref::DependentParameterRef; 
-                 [label::Type{<:AbstractSupportLabel} = PublicLabel])::Int
+    num_supports(
+        pref::DependentParameterRef; 
+        [label::Type{<:AbstractSupportLabel} = PublicLabel]
+        )::Int
 
 Return the number of support points associated with a single dependent infinite
 parameter `pref`. Specify a subset of supports via `label` to only count the
@@ -982,8 +885,10 @@ julia> num_supports(x[1], label = MCSample)
 0
 ```
 """
-function num_supports(pref::DependentParameterRef; 
-                      label::Type{<:AbstractSupportLabel} = PublicLabel)::Int
+function num_supports(
+    pref::DependentParameterRef; 
+    label::Type{<:AbstractSupportLabel} = PublicLabel
+    )
     supp_dict = _parameter_supports(pref)
     if label == All || (!has_internal_supports(pref) && label == PublicLabel)
         return length(supp_dict)
@@ -993,8 +898,10 @@ function num_supports(pref::DependentParameterRef;
 end
 
 """
-    num_supports(prefs::AbstractArray{<:DependentParameterRef};
-                 [label::Type{<:AbstractSupportLabel} = PublicLabel])::Int
+    num_supports(
+        prefs::Array{<:DependentParameterRef};
+        [label::Type{<:AbstractSupportLabel} = PublicLabel]
+        )::Int
 
 Return the number of support points associated with dependent infinite
 parameters `prefs`. Errors if not all from the same underlying object.
@@ -1008,9 +915,10 @@ julia> num_supports(x)
 2
 ```
 """
-function num_supports(prefs::AbstractArray{<:DependentParameterRef};
+function num_supports(
+    prefs::Array{<:DependentParameterRef};
     label::Type{<:AbstractSupportLabel} = PublicLabel
-    )::Int
+    )
     _check_complete_param_array(prefs)
     return num_supports(first(prefs), label = label)
 end
@@ -1026,10 +934,10 @@ julia> has_supports(x[1])
 true
 ```
 """
-has_supports(pref::DependentParameterRef)::Bool = !isempty(_parameter_supports(pref))
+has_supports(pref::DependentParameterRef) = !isempty(_parameter_supports(pref))
 
 """
-    has_supports(prefs::AbstractArray{<:DependentParameterRef})::Bool
+    has_supports(prefs::Array{<:DependentParameterRef})::Bool
 
 Return true if `prefs` have supports or false otherwise. Errors if not all of the
 infinite dependent parameters are from the same object.
@@ -1040,14 +948,16 @@ julia> has_supports(x)
 true
 ```
 """
-function has_supports(prefs::AbstractArray{<:DependentParameterRef})::Bool
+function has_supports(prefs::Array{<:DependentParameterRef})
     _check_complete_param_array(prefs)
     return has_supports(first(prefs))
 end
 
 """
-    supports(pref::DependentParameterRef; 
-             [label::Type{<:AbstractSupportLabel} = PublicLabel])::Vector{Float64}
+    supports(
+        pref::DependentParameterRef; 
+        [label::Type{<:AbstractSupportLabel} = PublicLabel]
+        )::Vector{Float64}
 
 Return the support points associated with `pref`. A subset of supports can be
 returned via `label` to return just the supports associated with `label`. By 
@@ -1062,8 +972,10 @@ julia> supports(x[1])
  1.0
 ```
 """
-function supports(pref::DependentParameterRef;
-                  label::Type{<:AbstractSupportLabel} = PublicLabel)::Vector{Float64}
+function supports(
+    pref::DependentParameterRef;
+    label::Type{<:AbstractSupportLabel} = PublicLabel
+    )
     supp_dict = _parameter_supports(pref)
     pindex = _param_index(pref)
     if label == All || (!has_internal_supports(pref) && label == PublicLabel)
@@ -1075,9 +987,10 @@ function supports(pref::DependentParameterRef;
 end
 
 """
-    supports(prefs::AbstractArray{<:DependentParameterRef};
-             [label::Type{<:AbstractSupportLabel} = PublicLabel]
-             )::Union{Vector{<:AbstractArray{<:Real}}, Array{Float64, 2}}
+    supports(
+        prefs::Array{<:DependentParameterRef};
+        [label::Type{<:AbstractSupportLabel} = PublicLabel]
+        )::Union{Vector{<:AbstractArray{<:Real}}, Array{Float64, 2}}
 
 Return the support points associated with `prefs`. Errors if not all of the
 infinite dependent parameters are from the same object. This will return a
@@ -1095,24 +1008,26 @@ julia> supports(x) # columns are supports
  0.0  1.0
 ```
 """
-function supports(prefs::AbstractArray{<:DependentParameterRef};
-                  label::Type{<:AbstractSupportLabel} = PublicLabel
-                  )::Vector{<:AbstractArray{<:Real}}
+function supports(
+    prefs::Array{<:DependentParameterRef};
+    label::Type{<:AbstractSupportLabel} = PublicLabel
+    )
     _check_complete_param_array(prefs)
-    inds = Collections.indices(prefs)
+    _, info = Collections.vectorize(prefs)
     supp_dict = _parameter_supports(first(prefs))
     if label == All || (!has_internal_supports(first(prefs)) && label == PublicLabel)
         raw_supps = collect(keys(supp_dict))
     else
         raw_supps = findall(e -> any(v -> v <: label, e), supp_dict)
     end
-    return map(s -> Collections.unvectorize(s, inds), raw_supps)
+    return map(s -> Collections.unvectorize(s, info), raw_supps)
 end
 
 # Dispatch for Vectors to make predictable matrix outputs
-function supports(prefs::Vector{DependentParameterRef};
-                  label::Type{<:AbstractSupportLabel} = PublicLabel
-                  )::Array{Float64, 2}
+function supports(
+    prefs::Vector{DependentParameterRef};
+    label::Type{<:AbstractSupportLabel} = PublicLabel
+    )
     if !has_supports(prefs)
         return zeros(Float64, _num_parameters(first(prefs)), 0)
     elseif label == All || (!has_internal_supports(first(prefs)) && label == PublicLabel)
@@ -1134,47 +1049,47 @@ function supports(prefs::Vector{DependentParameterRef};
 end
 
 # Define method for overriding the current supports
-function _update_parameter_supports(prefs::AbstractArray{<:DependentParameterRef},
-                                    supports::Array{<:Real, 2},
-                                    label::Type{<:AbstractSupportLabel})::Nothing
+function _update_parameter_supports(
+    prefs::Array{<:DependentParameterRef},
+    supports::Array{<:Real, 2},
+    label::Type{<:AbstractSupportLabel}
+    )
     domain = _parameter_domain(first(prefs))
-    new_supps = Dict{Vector{Float64}, Set{DataType}}(@views supports[:, i] =>
-                                      Set([label]) for i in 1:size(supports, 2))
+    new_supps = DataStructures.OrderedDict{Vector{Float64}, Set{DataType}}(
+        s => Set([label]) for s in eachcol(supports)
+        )
     sig_figs = significant_digits(first(prefs))
-    methods = _derivative_methods(first(prefs))
-    new_params = DependentParameters(domain, new_supps, sig_figs, methods)
-    _set_core_variable_object(first(prefs), new_params)
+    new_params = DependentParameters(domain, new_supps, sig_figs)
+    _set_core_object(first(prefs), new_params)
     _set_has_internal_supports(first(prefs), label <: InternalLabel)
-    for pref in prefs 
-        _reset_derivative_constraints(pref)
-    end
     if any(is_used(pref) for pref in prefs)
-        set_optimizer_model_ready(JuMP.owner_model(first(prefs)), false)
+        set_transformation_backend_ready(JuMP.owner_model(first(prefs)), false)
     end
     return
 end
 
 # Process an array of vectors into a support matrix
-function _make_support_matrix(
-    supports::Vector{<:AbstractArray{<:Real}},
-    inds::Collections.ContainerIndices    
-    )::Array{Float64, 2}
-    supp_inds = Collections.indices(first(supports))
-    supp_inds == inds || error("Inconsistent support indices")
+function _make_support_matrix(supports::Vector{<:Array{<:Real}}, info, num_prefs)
+    vect_supp, supp_info = Collections.vectorize(first(supports))
+    if supp_info != info || num_prefs != length(vect_supp)
+        error("Inconsistent support dimensions.")
+    end
     lens = [length(supp) for supp in supports]
     _allequal(lens) || error("Inconsistent support dimensions.")
-    supps = Array{Float64}(undef, length(inds), length(supports))
+    supps = Array{Float64}(undef, num_prefs, length(supports))
     for i in eachindex(supports)
-        @inbounds supps[:, i] = Collections.vectorize(supports[i], supp_inds)
+        @inbounds supps[:, i] = Collections.vectorize(supports[i])[1]
     end
     return supps
 end
 
 """
-    set_supports(prefs::AbstractArray{<:DependentParameterRef},
-                 supports::Vector{<:AbstractArray{<:Real}};
-                 [force::Bool = false,
-                 label::Type{<:AbstractSupportLabel} = UserDefined])::Nothing
+    set_supports(
+        prefs::Array{<:DependentParameterRef},
+        supports::Vector{<:Array{<:Real}};
+        [force::Bool = false,
+        label::Type{<:AbstractSupportLabel} = UserDefined]
+        )::Nothing
 
 Specify the support points for `prefs`. Errors if the supports violate the domain
 of the infinite domain, if the dimensions don't match up properly,
@@ -1184,10 +1099,12 @@ supports and `force = false`. Note that it is strongly preferred to use
 `add_supports` if possible to avoid destroying measure dependencies.
 
 ```julia
-    set_supports(prefs::Vector{DependentParameterRef},
-                 supports::Array{<:Real, 2};
-                 [force::Bool = false,
-                 label::Type{<:AbstractSupportLabel} = UserDefined])::Nothing
+    set_supports(
+        prefs::Vector{DependentParameterRef},
+        supports::Array{<:Real, 2};
+        [force::Bool = false,
+        label::Type{<:AbstractSupportLabel} = UserDefined]
+        )::Nothing
 ```
 Specify the supports for a vector `prefs` of dependent infinite parameters.
 Here rows of `supports` correspond to `prefs` and the columns correspond to the
@@ -1207,15 +1124,14 @@ julia> supports(x)
 ```
 """
 function set_supports(
-    prefs::AbstractArray{<:DependentParameterRef},
-    supports::Vector{<:AbstractArray{<:Real}};
+    prefs::Array{<:DependentParameterRef},
+    supports::Vector{<:Array{<:Real}};
     force::Bool = false,
     label::Type{<:AbstractSupportLabel} = UserDefined
-    )::Nothing
-    inds = Collections.indices(prefs)
-    supps = _make_support_matrix(supports, inds)
-    set_supports(Collections.vectorize(prefs, inds), supps, force = force, 
-                 label = label)
+    )
+    vect_prefs, info = Collections.vectorize(prefs)
+    supps = _make_support_matrix(supports, info, length(prefs))
+    set_supports(vect_prefs, supps, force = force, label = label)
     return
 end
 
@@ -1225,8 +1141,9 @@ function set_supports(
     supports::Array{<:Real, 2};
     force::Bool = false,
     label::Type{<:AbstractSupportLabel} = UserDefined
-    )::Nothing
+    )
     domain = infinite_domain(prefs) # this does a check on prefs
+    supports = round.(supports, sigdigits = significant_digits(first(prefs)))
     if has_supports(prefs) && !force
         error("Unable set supports for $prefs since they already have supports." *
               " Consider using `add_supports` or use `force = true` to " *
@@ -1234,7 +1151,6 @@ function set_supports(
     elseif !supports_in_domain(supports, domain)
         error("Supports violate the domain of the infinite domain.")
     end
-    supports = round.(supports, sigdigits = significant_digits(first(prefs)))
     _update_parameter_supports(prefs, supports, label)
     return
 end
@@ -1245,9 +1161,11 @@ function set_supports(pref::DependentParameterRef, supports; kwargs...)
 end
 
 """
-    add_supports(prefs::AbstractArray{<:DependentParameterRef},
-                 supports::Vector{<:AbstractArray{<:Real}};
-                 [label::Type{<:AbstractSupportLabel} = UserDefined])::Nothing
+    add_supports(
+        prefs::Array{<:DependentParameterRef},
+        supports::Vector{<:Array{<:Real}};
+        [label::Type{<:AbstractSupportLabel} = UserDefined]
+        )::Nothing
 
 Add additional support points for `prefs`. Errors if the supports violate the domain
 of the infinite domain, if the dimensions don't match up properly,
@@ -1255,9 +1173,11 @@ if `prefs` and `supports` have different indices, or not all of the `prefs` are
 from the same dependent infinite parameter container.
 
 ```julia
-    add_supports(prefs::Vector{DependentParameterRef},
-                 supports::Array{<:Real, 2};
-                 [label::Type{<:AbstractSupportLabel} = UserDefined])::Nothing
+    add_supports(
+        prefs::Vector{DependentParameterRef},
+        supports::Array{<:Real, 2};
+        [label::Type{<:AbstractSupportLabel} = UserDefined]
+        )::Nothing
 ```
 Specify the supports for a vector `prefs` of dependent infinite parameters.
 Here rows of `supports` correspond to `prefs` and the columns correspond to the
@@ -1282,15 +1202,14 @@ julia> supports(t)
 ```
 """
 function add_supports(
-    prefs::AbstractArray{<:DependentParameterRef},
-    supports::Vector{<:AbstractArray{<:Real}};
+    prefs::Array{<:DependentParameterRef},
+    supports::Vector{<:Array{<:Real}};
     label::Type{<:AbstractSupportLabel} = UserDefined, # interal keyword args
     check::Bool = true
-    )::Nothing
-    inds = Collections.indices(prefs)
-    supps = _make_support_matrix(supports, inds)
-    add_supports(Collections.vectorize(prefs, inds), supps, label = label, 
-                 check = check)
+    )
+    vect_prefs, info = Collections.vectorize(prefs)
+    supps = _make_support_matrix(supports, info, length(vect_prefs))
+    add_supports(vect_prefs, supps, label = label, check = check)
     return
 end
 
@@ -1300,12 +1219,12 @@ function add_supports(
     supports::Array{<:Real, 2};
     label::Type{<:AbstractSupportLabel} = UserDefined, # internal keyword args
     check::Bool = true
-    )::Nothing
+    )
     domain = infinite_domain(prefs) # this does a check on prefs
+    supports = round.(supports, sigdigits = significant_digits(first(prefs)))
     if check && !supports_in_domain(supports, domain)
         error("Supports violate the domain of the infinite domain.")
     end
-    supports = round.(supports, sigdigits = significant_digits(first(prefs)))
     current_supports = _parameter_supports(first(prefs))
     added_new_support = false
     for i in 1:size(supports, 2)
@@ -1321,11 +1240,8 @@ function add_supports(
         _set_has_internal_supports(first(prefs), true)
     end
     if added_new_support
-        for pref in prefs
-            _reset_derivative_constraints(pref)
-        end
         if any(is_used(pref) for pref in prefs)
-            set_optimizer_model_ready(JuMP.owner_model(first(prefs)), false)
+            set_transformation_backend_ready(JuMP.owner_model(first(prefs)), false)
         end
     end
     return
@@ -1337,8 +1253,10 @@ function add_supports(pref::DependentParameterRef, supports; kwargs...)
 end
 
 """
-    delete_supports(prefs::AbstractArray{<:DependentParameterRef};
-                    [label::Type{<:AbstractSupportLabel} = All])::Nothing
+    delete_supports(
+        prefs::Array{<:DependentParameterRef};
+        [label::Type{<:AbstractSupportLabel} = All]
+        )::Nothing
 
 Delete the support points for `prefs`. Errors if any of the parameters are
 used by a measure or if not all belong to the same set of dependent parameters.
@@ -1352,14 +1270,11 @@ julia> delete_supports(w)
 ```
 """
 function delete_supports(
-    prefs::AbstractArray{<:DependentParameterRef};
+    prefs::Array{<:DependentParameterRef};
     label::Type{<:AbstractSupportLabel} = All
-    )::Nothing
+    )
     _check_complete_param_array(prefs)
     supp_dict = _parameter_supports(first(prefs))
-    for pref in prefs
-        _reset_derivative_constraints(pref)
-    end
     if label == All
         if any(used_by_measure(pref) for pref in prefs)
             error("Cannot delete supports with measure dependencies.")
@@ -1377,7 +1292,7 @@ function delete_supports(
         end
     end
     if any(is_used(pref) for pref in prefs)
-        set_optimizer_model_ready(JuMP.owner_model(first(prefs)), false)
+        set_transformation_backend_ready(JuMP.owner_model(first(prefs)), false)
     end
     return
 end
@@ -1389,7 +1304,7 @@ end
 
 # TODO resolve case that there are existing UniformGrid supports
 """
-    generate_and_add_supports!(prefs::AbstractArray{<:DependentParameterRef},
+    generate_and_add_supports!(prefs::Array{<:DependentParameterRef},
                                domain::InfiniteArrayDomain,
                                [method::Type{<:AbstractSupportLabel}];
                                [num_supports::Int = DefaultNumSupports])::Nothing
@@ -1404,35 +1319,39 @@ adding supports to a set of infinite parameters. Errors if the
 infinite domain type is not recognized.
 """
 function generate_and_add_supports!(
-    prefs::AbstractArray{<:DependentParameterRef},
+    prefs::Array{<:DependentParameterRef},
     domain::InfiniteArrayDomain;
     num_supports::Int = DefaultNumSupports
-    )::Nothing
-    new_supps, label = generate_supports(domain,
-                                         num_supports = num_supports,
-                                    sig_digits = significant_digits(first(prefs)))
-    add_supports(Collections.vectorize(prefs), new_supps, check = false, 
+    )
+    new_supps, label = generate_supports(
+        domain,
+        num_supports = num_supports,
+        sig_digits = significant_digits(first(prefs))
+        )
+    add_supports(Collections.vectorize(prefs)[1], new_supps, check = false, 
                  label = label)
     return
 end
 
 # Method dispatch
 function generate_and_add_supports!(
-    prefs::AbstractArray{<:DependentParameterRef},
+    prefs::Array{<:DependentParameterRef},
     domain::InfiniteArrayDomain,
     method::Type{<:AbstractSupportLabel};
     num_supports::Int = DefaultNumSupports
-    )::Nothing
-    new_supps, label = generate_supports(domain, method,
-                                         num_supports = num_supports,
-                                    sig_digits = significant_digits(first(prefs)))
-    add_supports(Collections.vectorize(prefs), new_supps, check = false, 
+    )
+    new_supps, label = generate_supports(
+        domain, method,
+        num_supports = num_supports,
+        sig_digits = significant_digits(first(prefs))
+        )
+    add_supports(Collections.vectorize(prefs)[1], new_supps, check = false, 
                  label = label)
     return
 end
 
 """
-    fill_in_supports!(prefs::AbstractArray{<:DependentParameterRef};
+    fill_in_supports!(prefs::Array{<:DependentParameterRef};
                       [num_supports::Int = DefaultNumSupports,
                        modify::Bool = true])::Nothing
 
@@ -1455,10 +1374,10 @@ julia> supports(x)
 ```
 """
 function fill_in_supports!(
-    prefs::AbstractArray{<:DependentParameterRef};
+    prefs::Array{<:DependentParameterRef};
     num_supports::Int = DefaultNumSupports,
     modify::Bool = true
-    )::Nothing
+    )
     domain = infinite_domain(prefs) # does check for bad container
     current_amount = InfiniteOpt.num_supports(first(prefs))
     if (modify || current_amount == 0) && (current_amount < num_supports)
@@ -1500,7 +1419,7 @@ function fill_in_supports!(
     model::InfiniteModel; 
     num_supports::Int = DefaultNumSupports,
     modify::Bool = true
-    )::Nothing
+    )
     # fill in the the supports of each independent parameter
     for (key, _) in model.independent_params
         pref = dispatch_variable_ref(model, key)
@@ -1545,7 +1464,7 @@ julia> num_parameters(model, IndependentParameter)
 function num_parameters(
     model::InfiniteModel,
     type::Type{InfOptParameter} = InfOptParameter
-    )::Int
+    )
     num_pars = num_parameters(model, IndependentParameter)
     num_pars += num_parameters(model, FiniteParameter)
     num_pars += num_parameters(model, DependentParameters)
@@ -1556,7 +1475,7 @@ end
 function num_parameters(
     model::InfiniteModel,
     type::Type{C}
-    )::Int where {C <: ScalarParameter}
+    ) where {C <: ScalarParameter}
     return length(_data_dictionary(model, type))
 end
 
@@ -1564,7 +1483,7 @@ end
 function num_parameters(
     model::InfiniteModel,
     type::Type{ScalarParameter}
-    )::Int
+    )
     num_pars = num_parameters(model, FiniteParameter)
     num_pars += num_parameters(model, IndependentParameter)
     return num_pars
@@ -1574,7 +1493,7 @@ end
 function num_parameters(
     model::InfiniteModel,
     type::Type{DependentParameters}
-    )::Int
+    )
     num_pars = 0
     for (_, object) in _data_dictionary(model, type)
         num_pars += length(object.names)
@@ -1586,7 +1505,7 @@ end
 function num_parameters(
     model::InfiniteModel,
     type::Type{InfiniteParameter}
-    )::Int
+    )
     num_pars = num_parameters(model, IndependentParameter)
     num_pars += num_parameters(model, DependentParameters)
     return num_pars
@@ -1625,7 +1544,7 @@ julia> all_parameters(model, FiniteParameter)
 function all_parameters(
     model::InfiniteModel,
     type::Type{InfOptParameter} = InfOptParameter
-    )::Vector{GeneralVariableRef}
+    )
     prefs_list = all_parameters(model, IndependentParameter)
     append!(prefs_list, all_parameters(model, DependentParameters))
     append!(prefs_list, all_parameters(model, FiniteParameter))
@@ -1636,10 +1555,10 @@ end
 function all_parameters(
     model::InfiniteModel,
     type::Type{C}
-    )::Vector{GeneralVariableRef} where {C <: InfOptParameter}
+    ) where {C <: InfOptParameter}
     prefs_list = Vector{GeneralVariableRef}(undef, num_parameters(model, type))
     for (i, (index, _)) in enumerate(_data_dictionary(model, type))
-        prefs_list[i] = _make_parameter_ref(model, index)
+        prefs_list[i] = GeneralVariableRef(model, index)
     end
     return prefs_list
 end
@@ -1648,7 +1567,7 @@ end
 function all_parameters(
     model::InfiniteModel,
     type::Type{ScalarParameter}
-    )::Vector{GeneralVariableRef}
+    )
     prefs_list = all_parameters(model, IndependentParameter)
     append!(prefs_list, all_parameters(model, FiniteParameter))
     return prefs_list
@@ -1658,13 +1577,13 @@ end
 function all_parameters(
     model::InfiniteModel,
     type::Type{DependentParameters}
-    )::Vector{GeneralVariableRef}
+    )
     prefs_list = Vector{GeneralVariableRef}(undef, num_parameters(model, type))
     counter = 1
     for (index, object) in _data_dictionary(model, type)
         for i in eachindex(object.names)
             dep_idx = DependentParameterIndex(index, i)
-            prefs_list[counter] = _make_parameter_ref(model, dep_idx)
+            prefs_list[counter] = GeneralVariableRef(model, dep_idx)
             counter += 1
         end
     end
@@ -1675,7 +1594,7 @@ end
 function all_parameters(
     model::InfiniteModel,
     type::Type{InfiniteParameter}
-    )::Vector{GeneralVariableRef}
+    )
     prefs_list = all_parameters(model, DependentParameters)
     append!(prefs_list, all_parameters(model, IndependentParameter))
     return prefs_list
@@ -1685,8 +1604,7 @@ end
 #                                 DELETION
 ################################################################################
 """
-    JuMP.delete(model::InfiniteModel,
-                prefs::AbstractArray{<:DependentParameterRef})::Nothing
+    JuMP.delete(model::InfiniteModel, prefs::Array{<:DependentParameterRef})::Nothing
 
 Extend `JuMP.delete` to delete
 dependent infinite parameters and their dependencies. All variables, constraints, and
@@ -1696,8 +1614,7 @@ a measure since the measure becomes invalid otherwise. Thus, measures that
 contain this dependency must be deleted first. Note that
 [`parameter_refs`](@ref parameter_refs(::AbstractMeasureData)) needs to be
 extended to allow deletion of parameters when custom `AbstractMeasureData`
-datatypes are used. Note that any dependent infinite variables will have their
-start values reset to the default via [`reset_start_value_function`](@ref).
+datatypes are used.
 
 **Example**
 ```julia-repl
@@ -1719,11 +1636,11 @@ Subject to
 """
 function JuMP.delete(
     model::InfiniteModel,
-    prefs::AbstractArray{<:DependentParameterRef}
-    )::Nothing
+    prefs::Array{<:DependentParameterRef}
+    )
     @assert JuMP.is_valid(model, first(prefs)) "Parameter references are invalid."
     _check_complete_param_array(prefs)
-    gvrefs = [_make_parameter_ref(model, JuMP.index(pref)) for pref in prefs]
+    gvrefs = GeneralVariableRef.(prefs)
     # ensure deletion is okay (prefs are not used by measure data)
     for pref in gvrefs
         for mindex in _measure_dependencies(pref)
@@ -1741,9 +1658,9 @@ function JuMP.delete(
         error("Cannot delete `$prefs` since they are used by an infinite " * 
               "parameter function(s).")
     end
-    # update optimizer model status
+    # update transformation backend status
     if any(is_used(pref) for pref in prefs)
-        set_optimizer_model_ready(model, false)
+        set_transformation_backend_ready(model, false)
     end
     # delete dependence of measures and constraints on prefs
     for pref in gvrefs
@@ -1751,17 +1668,10 @@ function JuMP.delete(
         _update_constraints(model, pref)
     end
     # get the object and parameter numbers
-    obj_num = _object_number(first(prefs))
-    param_nums = collect(_data_object(first(prefs)).parameter_nums)
-    # delete derivatives that depend on any of these parameters 
-    for pref in gvrefs 
-        for index in _derivative_dependencies(pref)
-            JuMP.delete(model, dispatch_variable_ref(model, index))
-        end
-    end
+    group_int_idx = parameter_group_int_index(first(prefs))
     # delete parameter information stored in model
     _delete_data_object(first(prefs))
-    # update the object numbers and parameter numbers
-    _update_model_numbers(model, obj_num, param_nums)
+    # update the parameter group integer indices
+    _update_group_int_indices(model, group_int_idx)
     return
 end

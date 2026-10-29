@@ -10,14 +10,14 @@ respective [technical manual](@ref obj_manual) for more details.
 Naturally, objective functions serve as a key aspect of optimization problems in 
 general and this is certainly the case with infinite dimensional ones. In 
 `InfiniteOpt` objectives are defined in much the same way they are in `JuMP`. 
-One key idea to keep in mind is that the objective must evaluate to a finite 
-expression. Note this means that objectives can only explicitly contain 
-finite variables and point variables. Infinite expressions must be evaluated in a 
-measure to be included (e.g., evaluate the expectation of a random variable).
+One key idea is that the objective must evaluate to a finite expression which means 
+it must only explicitly contain finite variables and point variables. Infinite 
+expressions must be summarized by a measure (e.g., taking the expectation of a random variable).
 
-## [Basic Usage] (@id obj_basic)
+
+## [Basic Usage](@id obj_basic)
 Principally, the objective function is specified via 
-[`@objective`](https://jump.dev/JuMP.jl/v0.22/reference/objectives/#JuMP.@objective) 
+[`@objective`](https://jump.dev/JuMP.jl/v1/api/JuMP/#JuMP.@objective) 
 as is done in `JuMP`. For example, let's define the stochastic objective to 
 minimize ``0.5 x_1 + 0.5 x_2 + \mathbb{E}_\xi [y^2 - y]``:
 ```jldoctest obj; setup = :(using InfiniteOpt, Distributions; model = InfiniteModel())
@@ -35,13 +35,12 @@ julia> @variable(model, x[1:2])
 julia> @objective(model, Min, 0.5x[1] + 0.5x[2] + 𝔼(y^2 - y, ξ))
 0.5 x[1] + 0.5 x[2] + 𝔼{ξ}[y(ξ)² - y(ξ)]
 ```
-Thus, we have defined an objective using `InfiniteOpt`'s straightforward syntax. 
 Note that the second argument indicates the objective sense which can be 
 expressed `Min` for minimization problems and `Max` for maximization problems. 
 The objective function (expression) must be finite containing only finite variables, 
-point variables, and/or measures. Also, any included measures must fully 
-integrate over all the infinite parameters contained in its input function. 
-For example, if we define had an infinite variable `z(ξ, t)` then the measure 
+point variables, and/or measures. Also, any included measures must fully summarize 
+all infinite parameters contained in the expression they summarize. 
+For example, if we define an infinite variable `z(ξ, t)`, then the measure 
 `𝔼(z, ξ)` could not be included since the resulting expression would still 
 be infinite with respect to `t`. However, adding a measure for `t` would result 
 in a valid object to add to an objective: `∫(𝔼(z, ξ), t)`.
@@ -85,7 +84,7 @@ objective function.
 This section will review the methods that can be used to modify the objective. 
 First, we'll consider the useful 
 [`set_objective_coefficient`](@ref JuMP.set_objective_coefficient(::InfiniteModel, ::GeneralVariableRef, ::Real)) 
-method and then we'll explain the methods that enable `@objective`.
+method, and then we'll explain the methods that enable `@objective`.
 
 The coefficient of a particular variable in an objective can be readily updated 
 via [`set_objective_coefficient`](@ref JuMP.set_objective_coefficient(::InfiniteModel, ::GeneralVariableRef, ::Real)). 
@@ -138,6 +137,24 @@ more efficient at parsing expressions.
 
 !!! note
     When possible, the 
-    [`@objective`](https://jump.dev/JuMP.jl/v0.22/reference/objectives/#JuMP.@objective) 
+    [`@objective`](https://jump.dev/JuMP.jl/v1/api/JuMP/#JuMP.@objective) 
     since it is more stable and efficient than the `set_objective_[aspect]` 
     methods due to its enhanced methodology for parsing expressions.
+
+### Multi-Objective Problems
+`InfiniteOpt` also supports multi-objective problems by supplying the model with a vector of scalar values.
+Instead of a `JuMP.AbstractJuMPScalar`, these become `AbstractVector` within the model.
+
+These models are defined the same way as scalar, single-objective models with `@objective`, with some slight differences in definition. Looking at the aforementioned example and modifying it a bit, it becomes:
+
+```jldoctest obj
+julia> set_objective(model, MOI.MAX_SENSE, [0.5x[1], 0.5x[2]])
+
+julia> @objective(model, Max, [0.5x[1], 0.5x[2]])
+2-element Vector{GenericAffExpr{Float64, GeneralVariableRef}}:
+ 0.5 x[1]
+ 0.5 x[2]
+```
+If a scalarization method of solving the model is the goal, the individual `@expression` scalars within the vector can be compiled into a single objective. The weight- or priority- of these expressions can be changed by multiplying each component in the vector by fractions, with the sum of the fractions being 1.
+In hierarchical model solving, the order of the scalars determines the priority of the model.
+For more solvers that support multiple objective optimization, please refer to `JuMP` solvers, such as [MultiObjectiveAlgorithms](https://jump.dev/JuMP.jl/stable/packages/MultiObjectiveAlgorithms/#MultiObjectiveAlgorithms.jl) and [Gurobi](https://jump.dev/JuMP.jl/stable/packages/Gurobi/#Gurobi.jl).

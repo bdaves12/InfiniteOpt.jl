@@ -19,48 +19,50 @@ ParameterFunctionRef
 ```@docs
 JuMP.name(::ParameterFunctionRef)
 raw_function(::ParameterFunctionRef)
+JuMP.parameter_value(::ParameterFunctionRef)
 call_function
 parameter_refs(::ParameterFunctionRef)
 parameter_list(::ParameterFunctionRef)
 raw_parameter_refs(::ParameterFunctionRef)
 is_used(::ParameterFunctionRef)
 used_by_semi_infinite_variable(::ParameterFunctionRef)
-used_by_derivative(::ParameterFunctionRef)
+used_by_point_variable(::ParameterFunctionRef)
 used_by_measure(::ParameterFunctionRef)
 used_by_constraint(::ParameterFunctionRef)
+parameter_group_int_indices(::ParameterFunctionRef)
+num_parameter_functions
+all_parameter_functions
 ```
 
 ### Modification
 ```@docs
 JuMP.set_name(::ParameterFunctionRef, ::String)
+JuMP.set_parameter_value(::ParameterFunctionRef, ::Function)
 JuMP.delete(::InfiniteModel, ::ParameterFunctionRef)
 ```
 
 ## [Nonlinear Expressions](@id nlp_manual)
 ### DataTypes
 ```@docs
-NodeData
-NLPExpr
-RegisteredFunction
+NLPOperator
 ```
 
-### Methods/Macros
+### Methods
 ```@docs
-@register
-all_registered_functions
-name_to_function
-user_registered_functions
-InfiniteOpt.ifelse
-print_expression_tree(::NLPExpr)
-JuMP.drop_zeros!(::NLPExpr)
-map_nlp_to_ast
-add_registered_to_jump
+JuMP.add_nonlinear_operator
+all_nonlinear_operators
+name_to_operator
+added_nonlinear_operators
+add_operators_to_jump
 ```
 
 ## Expression Methods
 ```@docs
-parameter_refs(::Union{JuMP.GenericAffExpr, JuMP.GenericQuadExpr})
+parameter_refs(::Union{JuMP.GenericAffExpr, JuMP.GenericNonlinearExpr, JuMP.GenericQuadExpr})
+restrict(::JuMP.AbstractJuMPScalar)
 map_expression
+all_expression_variables
+parameter_group_int_indices(::Any)
 ```
 
 ## GeneralVariableRef User Methods
@@ -81,38 +83,39 @@ JuMP.is_valid(::InfiniteModel, ::DispatchVariableRef)
 used_by_infinite_variable(::GeneralVariableRef)
 used_by_point_variable(::GeneralVariableRef)
 used_by_semi_infinite_variable(::GeneralVariableRef)
+used_by_parameter_function(::GeneralVariableRef)
 used_by_derivative(::GeneralVariableRef)
 used_by_measure(::GeneralVariableRef)
 used_by_objective(::GeneralVariableRef)
 used_by_constraint(::GeneralVariableRef)
 is_used(::GeneralVariableRef)
 has_derivative_constraints(::GeneralVariableRef)
-parameter_value(::GeneralVariableRef)
-JuMP.set_value(::GeneralVariableRef, ::Real)
+JuMP.parameter_value(::GeneralVariableRef)
+JuMP.set_parameter_value(::GeneralVariableRef, ::Any)
 infinite_domain(::GeneralVariableRef)
-infinite_domain(::AbstractArray{<:GeneralVariableRef})
+infinite_domain(::Array{<:GeneralVariableRef})
 set_infinite_domain(::GeneralVariableRef, ::InfiniteScalarDomain)
-set_infinite_domain(::AbstractArray{<:GeneralVariableRef}, ::InfiniteArrayDomain)
+set_infinite_domain(::Array{<:GeneralVariableRef}, ::InfiniteArrayDomain)
 num_supports(::GeneralVariableRef)
-num_supports(::AbstractArray{<:GeneralVariableRef})
+num_supports(::Array{<:GeneralVariableRef})
 has_supports(::GeneralVariableRef)
-has_supports(::AbstractArray{<:GeneralVariableRef})
+has_supports(::Array{<:GeneralVariableRef})
 supports(::GeneralVariableRef)
-supports(::AbstractArray{<:GeneralVariableRef})
+supports(::Array{<:GeneralVariableRef})
 set_supports(::GeneralVariableRef,::Union{Real, Vector{<:Real}})
-set_supports(::AbstractArray{<:GeneralVariableRef},::Union{Array{<:Real, 2}, Vector{<:AbstractArray{<:Real}}})
+set_supports(::Array{<:GeneralVariableRef},::Union{Array{<:Real, 2}, Vector{<:Array{<:Real}}})
 add_supports(::GeneralVariableRef,::Union{Real, Vector{<:Real}})
-add_supports(::AbstractArray{<:GeneralVariableRef},::Union{Array{<:Real, 2}, Vector{<:AbstractArray{<:Real}}})
+add_supports(::Array{<:GeneralVariableRef},::Union{Array{<:Real, 2}, Vector{<:Array{<:Real}}})
 delete_supports(::GeneralVariableRef)
-delete_supports(::AbstractArray{<:GeneralVariableRef})
+delete_supports(::Array{<:GeneralVariableRef})
 fill_in_supports!(::GeneralVariableRef)
-fill_in_supports!(::AbstractArray{<:GeneralVariableRef})
+fill_in_supports!(::Array{<:GeneralVariableRef})
 raw_parameter_refs(::GeneralVariableRef)
 parameter_refs(::GeneralVariableRef)
 parameter_list(::GeneralVariableRef)
 raw_function(::GeneralVariableRef)
 infinite_variable_ref(::GeneralVariableRef)
-eval_supports(::GeneralVariableRef)
+eval_support(::GeneralVariableRef)
 raw_parameter_values(::GeneralVariableRef)
 parameter_values(::GeneralVariableRef)
 significant_digits(::GeneralVariableRef)
@@ -121,6 +124,7 @@ measure_data(::GeneralVariableRef)
 is_analytic(::GeneralVariableRef)
 derivative_argument(::GeneralVariableRef)
 operator_parameter(::GeneralVariableRef)
+derivative_order(::GeneralVariableRef)
 derivative_method(::GeneralVariableRef)
 evaluate(::GeneralVariableRef)
 derivative_constraints(::GeneralVariableRef)
@@ -130,7 +134,7 @@ set_derivative_method(::GeneralVariableRef, ::AbstractDerivativeMethod)
 has_generative_supports(::GeneralVariableRef)
 has_internal_supports(::GeneralVariableRef)
 JuMP.delete(::InfiniteModel, ::GeneralVariableRef)
-JuMP.delete(::InfiniteModel,::AbstractArray{<:GeneralVariableRef})
+JuMP.delete(::InfiniteModel,::Array{<:GeneralVariableRef})
 JuMP.has_lower_bound(::GeneralVariableRef)
 JuMP.lower_bound(::GeneralVariableRef)
 JuMP.set_lower_bound(::GeneralVariableRef,::Real)
@@ -148,9 +152,6 @@ JuMP.FixRef(::GeneralVariableRef)
 JuMP.unfix(::GeneralVariableRef)
 JuMP.start_value(::GeneralVariableRef)
 JuMP.set_start_value(::GeneralVariableRef, ::Real)
-start_value_function(::GeneralVariableRef)
-set_start_value_function(::GeneralVariableRef, ::Any)
-reset_start_value_function(::GeneralVariableRef)
 JuMP.is_binary(::GeneralVariableRef)
 JuMP.set_binary(::GeneralVariableRef)
 JuMP.BinaryRef(::GeneralVariableRef)
@@ -159,6 +160,13 @@ JuMP.is_integer(::GeneralVariableRef)
 JuMP.set_integer(::GeneralVariableRef)
 JuMP.IntegerRef(::GeneralVariableRef)
 JuMP.unset_integer(::GeneralVariableRef)
+constant_over_collocation(::GeneralVariableRef, ::GeneralVariableRef)
+core_object
+core_object(::GeneralVariableRef)
+parameter_group_int_indices(::GeneralVariableRef)
+InfiniteOpt.parameter_group_int_index
+InfiniteOpt.parameter_group_int_index(::GeneralVariableRef)
+reformulate_high_order_derivatives!(::GeneralVariableRef)
 ```
 
 ## Developer Internal Methods
@@ -167,9 +175,7 @@ InfiniteOpt._add_data_object
 InfiniteOpt._data_dictionary
 InfiniteOpt._data_object
 InfiniteOpt._delete_data_object
-InfiniteOpt._core_variable_object
-InfiniteOpt._core_variable_object(::GeneralVariableRef)
-InfiniteOpt._set_core_variable_object
+InfiniteOpt._set_core_object
 InfiniteOpt._infinite_variable_dependencies
 InfiniteOpt._infinite_variable_dependencies(::GeneralVariableRef)
 InfiniteOpt._semi_infinite_variable_dependencies
@@ -186,8 +192,4 @@ InfiniteOpt._constraint_dependencies
 InfiniteOpt._constraint_dependencies(::GeneralVariableRef)
 InfiniteOpt._derivative_constraint_dependencies
 InfiniteOpt._derivative_constraint_dependencies(::GeneralVariableRef)
-InfiniteOpt._parameter_number
-InfiniteOpt._parameter_number(::GeneralVariableRef)
-InfiniteOpt._object_number
-InfiniteOpt._object_number(::GeneralVariableRef)
 ```

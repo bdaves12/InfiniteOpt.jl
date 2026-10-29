@@ -6,7 +6,7 @@ _support_sum_coeffs(x::Array) = ones(size(x)[end])
 
 """
     support_sum(expr::JuMP.AbstractJuMPScalar,
-                params::Union{GeneralVariableRef, AbstractArray{GeneralVariableRef}};
+                params::Union{GeneralVariableRef, Array{GeneralVariableRef}};
                 label = All
                 )::GeneralVariableRef
 
@@ -32,11 +32,12 @@ f(0.3) + f(0.7)
 """
 function support_sum(
     expr::JuMP.AbstractJuMPScalar,
-    prefs::Union{InfiniteOpt.GeneralVariableRef, AbstractArray{InfiniteOpt.GeneralVariableRef}};
+    prefs::Union{InfiniteOpt.GeneralVariableRef, Array{InfiniteOpt.GeneralVariableRef}};
     label = InfiniteOpt.All
-    )::InfiniteOpt.GeneralVariableRef
+    )
+    InfiniteOpt._check_params(prefs)
     # make the data
-    vect_prefs = InfiniteOpt.Collections.vectorize(prefs)
+    vect_prefs, _ = InfiniteOpt.Collections.vectorize(prefs)
     length(prefs) == 1 ? bounds = NaN : bounds = map(e -> NaN, vect_prefs)
     data = InfiniteOpt.FunctionalDiscreteMeasureData(vect_prefs, _support_sum_coeffs,
                                                      0, label,
@@ -49,22 +50,24 @@ end
 
 """
     @support_sum(expr::JuMP.AbstractJuMPScalar,
-                 prefs::Union{GeneralVariableRef, AbstractArray{GeneralVariableRef}};
+                 prefs::Union{GeneralVariableRef, Array{GeneralVariableRef}};
                  label = All
                  )::GeneralVariableRef
 
 An efficient wrapper for [`support_sum`](@ref) please see its doc string for
 more information.
 """
-macro support_sum(expr, prefs, args...)
-    _error(str...) = InfiniteOpt._macro_error(:support_sum, (expr, prefs, args...), 
-                                              str...)
-    extra, kwargs, _, _ = InfiniteOpt._extract_kwargs(args)
-    if length(extra) > 0
-        _error("Unexpected positional arguments." *
-               "Must be of form @support_sum(expr, prefs, kwargs...).")
-    end
+macro support_sum(args...)
+    error_fn = InfiniteOpt.JuMPC.build_error_fn(:support_sum, args, __source__)
+    pos_args, kwargs = InfiniteOpt.JuMPC.parse_macro_arguments(
+        error_fn, 
+        args, 
+        num_positional_args = 2,
+        valid_kwargs = [:label]
+    )
+    expr, prefs = pos_args
     expression = MutableArithmetics.rewrite_and_return(expr)
-    esc_kwargs = map(i -> esc(i), kwargs)
-    return :( support_sum($expression, $(esc(prefs)); ($(esc_kwargs...))) )
+    code = :( support_sum($expression, $(esc(prefs))) )
+    InfiniteOpt.JuMPC.add_additional_args(code, [], kwargs)
+    return code
 end

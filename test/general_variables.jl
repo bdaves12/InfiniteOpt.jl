@@ -165,7 +165,7 @@ end
     gvref = GeneralVariableRef(m, 1, TestIndex)
     # test _core_variable_object (GeneralVariableRef)
     @testset "_core_variable_object (GeneralVariableRef)" begin
-        @test_throws MethodError InfiniteOpt._core_variable_object(gvref)
+        @test_throws MethodError core_object(gvref)
     end
 end
 
@@ -245,17 +245,11 @@ end
     gvref = GeneralVariableRef(m, 1, TestIndex)
     gvrefs = [GeneralVariableRef(m, 1, TestIndex),
               GeneralVariableRef(m, 2, TestIndex)]
-    sparse_gvrefs = convert(JuMPC.SparseAxisArray, gvrefs)
-    dense_gvrefs = JuMPC.DenseAxisArray(gvrefs, 3:4)
     sdomain = IntervalDomain(0, 1)
     adomain = CollectionDomain([sdomain, sdomain])
-    # test _parameter_number
-    @testset "_parameter_number" begin
-        @test_throws MethodError InfiniteOpt._parameter_number(gvref)
-    end
-    # test _object_number
-    @testset "_object_number" begin
-        @test_throws MethodError InfiniteOpt._object_number(gvref)
+    # test parameter_group_int_index
+    @testset "parameter_group_int_index" begin
+        @test_throws MethodError InfiniteOpt.parameter_group_int_index(gvref)
     end
     # test 1 argument methods and fallbacks 
     for f in (:significant_digits, :parameter_value, :derivative_method, 
@@ -275,8 +269,6 @@ end
     # test infinite_domain (GeneralVariableRef Array)
     @testset "infinite_domain (GeneralVariableRef Array)" begin
         @test_throws ArgumentError infinite_domain(gvrefs)
-        @test_throws ArgumentError infinite_domain(dense_gvrefs)
-        @test_throws ArgumentError infinite_domain(sparse_gvrefs)
     end
     # test set_infinite_domain (Fallback)
     @testset "set_infinite_domain (Fallback)" begin
@@ -289,8 +281,6 @@ end
     # test set_infinite_domain (GeneralVariableRef Array)
     @testset "set_infinite_domain (GeneralVariableRef Array)" begin
         @test_throws ArgumentError set_infinite_domain(gvrefs, adomain)
-        @test_throws ArgumentError set_infinite_domain(dense_gvrefs, adomain)
-        @test_throws ArgumentError set_infinite_domain(sparse_gvrefs, adomain)
     end
     # test num_supports (Fallback)
     @testset "num_supports (Fallback)" begin
@@ -303,8 +293,6 @@ end
     # test num_supports (GeneralVariableRef Array)
     @testset "num_supports (GeneralVariableRef Array)" begin
         @test_throws ArgumentError num_supports(gvrefs, label = All)
-        @test_throws ArgumentError num_supports(dense_gvrefs, label = All)
-        @test_throws ArgumentError num_supports(sparse_gvrefs, label = All)
     end
     # test has_supports (Fallback)
     @testset "has_supports (Fallback)" begin
@@ -317,8 +305,6 @@ end
     # test has_supports (GeneralVariableRef Array)
     @testset "has_supports (GeneralVariableRef Array)" begin
         @test_throws ArgumentError has_supports(gvrefs)
-        @test_throws ArgumentError has_supports(dense_gvrefs)
-        @test_throws ArgumentError has_supports(sparse_gvrefs)
     end
     # test supports (Fallback)
     @testset "supports (Fallback)" begin
@@ -331,8 +317,6 @@ end
     # test supports (GeneralVariableRef Array)
     @testset "supports (GeneralVariableRef Array)" begin
         @test_throws ArgumentError supports(gvrefs, label = All)
-        @test_throws ArgumentError supports(dense_gvrefs, label = All)
-        @test_throws ArgumentError supports(sparse_gvrefs, label = All)
     end
     # test set_supports (Fallback)
     @testset "set_supports (Fallback)" begin
@@ -346,10 +330,6 @@ end
     @testset "set_supports (GeneralVariableRef Array)" begin
         @test_throws ArgumentError set_supports(gvrefs, ones(1, 1), label = All,
                                                 force = true)
-        @test_throws ArgumentError set_supports(dense_gvrefs, ones(1, 1),
-                                                label = All, force = true)
-        @test_throws ArgumentError set_supports(sparse_gvrefs, ones(1, 1),
-                                                label = All, force = true)
     end
     # test add_supports (Fallback)
     @testset "add_supports (Fallback)" begin
@@ -363,10 +343,6 @@ end
     @testset "add_supports (GeneralVariableRef Array)" begin
         @test_throws ArgumentError add_supports(gvrefs, ones(1, 1), label = All,
                                                 check = true)
-        @test_throws ArgumentError add_supports(dense_gvrefs, ones(1, 1),
-                                                label = All, check = true)
-        @test_throws ArgumentError add_supports(sparse_gvrefs, ones(1, 1),
-                                                label = All, check = true)
     end
     # test delete_supports (Fallback)
     @testset "delete_supports (Fallback)" begin
@@ -379,8 +355,6 @@ end
     # test delete_supports (GeneralVariableRef Array)
     @testset "delete_supports (GeneralVariableRef Array)" begin
         @test_throws ArgumentError delete_supports(gvrefs)
-        @test_throws ArgumentError delete_supports(dense_gvrefs)
-        @test_throws ArgumentError delete_supports(sparse_gvrefs)
     end
     # test fill_in_supports! (Fallback)
     @testset "fill_in_supports! (Fallback)" begin
@@ -393,16 +367,14 @@ end
     # test fill_in_supports! (GeneralVariableRef Array)
     @testset "fill_in_supports! (GeneralVariableRef Array)" begin
         @test_throws ArgumentError fill_in_supports!(gvrefs, num_supports = 1)
-        @test_throws ArgumentError fill_in_supports!(dense_gvrefs, num_supports = 1)
-        @test_throws ArgumentError fill_in_supports!(sparse_gvrefs,num_supports = 1)
     end
-    # test JuMP.set_value (Fallback)
+    # test JuMP.set_parameter_value (Fallback)
     @testset "JuMP.set_value (Fallback)" begin
-        @test_throws ArgumentError set_value(dvref, 2)
+        @test_throws ArgumentError set_parameter_value(dvref, 2)
     end
-    # test JuMP.set_value (GeneralVariableRef)
+    # test JuMP.set_parameter_value (GeneralVariableRef)
     @testset "JuMP.set_value (GeneralVariableRef)" begin
-        @test_throws ArgumentError set_value(gvref, 2)
+        @test_throws ArgumentError set_parameter_value(gvref, 2)
     end
     # test set_derivative_method (Fallback)
     @testset "set_derivative_method (Fallback)" begin
@@ -437,8 +409,7 @@ end
     gvref = GeneralVariableRef(m, 1, TestIndex)
     # test 1 argument methods 
     for f in (:raw_parameter_refs, :parameter_refs, :parameter_list,
-              :start_value_function, :reset_start_value_function,
-              :infinite_variable_ref, :eval_supports, :raw_parameter_values,
+              :infinite_variable_ref, :eval_support, :raw_parameter_values,
               :parameter_values)
         @test_throws ArgumentError eval(f)(dvref)
         @test_throws ArgumentError eval(f)(gvref)
@@ -468,7 +439,8 @@ end
     gvref = GeneralVariableRef(m, 1, TestIndex)
     # loop through methods 
     for f in (:derivative_argument, :operator_parameter, :evaluate, 
-              :derivative_constraints, :delete_derivative_constraints)
+              :derivative_constraints, :delete_derivative_constraints,
+              :derivative_order)
         @test_throws ArgumentError eval(f)(dvref)
         @test_throws ArgumentError eval(f)(gvref)
     end
@@ -481,14 +453,19 @@ end
     idx = TestIndex(1)
     dvref = TestVariableRef(m, idx)
     gvref = GeneralVariableRef(m, 1, TestIndex)
+    pref = GeneralVariableRef(m, -1, IndependentParameterIndex)
     # test 1 argument methods 
-    for f in (:has_lower_bound, :has_upper_bound, :is_fixed, :is_binary, 
-              :is_integer, :lower_bound, :upper_bound, :fix_value, :start_value,
-              :set_binary, :set_integer, :LowerBoundRef, :UpperBoundRef, :FixRef, 
-              :BinaryRef, :IntegerRef, :delete_lower_bound, :delete_upper_bound, 
+    for f in (:has_lower_bound, :has_upper_bound, :lower_bound, :upper_bound, 
+              :fix_value, :start_value, :set_binary, :set_integer, 
+              :LowerBoundRef, :UpperBoundRef, :FixRef, :BinaryRef, :IntegerRef, 
+              :delete_lower_bound, :delete_upper_bound, 
               :unfix, :unset_binary, :unset_integer)
         @test_throws ArgumentError eval(f)(dvref)
         @test_throws ArgumentError eval(f)(gvref)
+    end
+    for f in (:is_fixed, :is_binary, :is_integer)
+        @test !eval(f)(dvref)
+        @test !eval(f)(gvref)
     end
     # test setting methods
     for f in (:set_lower_bound, :set_upper_bound, :set_start_value)
@@ -503,12 +480,12 @@ end
     @testset "JuMP.fix (GeneralVariableRef)" begin
         @test_throws ArgumentError fix(gvref, 42, force = true)
     end
-    # test set_start_value_function (Fallback)
-    @testset "set_start_value_function (Fallback)" begin
-        @test_throws ArgumentError set_start_value_function(dvref, sin)
+    # test constant_over_collocation (Fallback)
+    @testset "constant_over_collocation (Fallback)" begin
+        @test_throws ArgumentError constant_over_collocation(dvref, pref)
     end
-    # test set_start_value_function (GeneralVariableRef)
-    @testset "set_start_value_function (GeneralVariableRef)" begin
-        @test_throws ArgumentError set_start_value_function(gvref, sin)
+    # test constant_over_collocation (GeneralVariableRef)
+    @testset "constant_over_collocation (GeneralVariableRef)" begin
+        @test_throws ArgumentError constant_over_collocation(gvref, pref)
     end
 end

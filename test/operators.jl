@@ -8,11 +8,11 @@
     @variable(m, finite)
     dinf = @deriv(inf, par)
     data = TestData(par, 0, 5)
-    meas = Measure(finite, data, Int[], Int[], true)
+    meas = Measure(finite, data, Int[], true)
     object = MeasureData(meas, "test")
     mindex = MeasureIndex(1)
     @test InfiniteOpt._add_data_object(m, object) == mindex
-    meas = InfiniteOpt._make_variable_ref(m, mindex)
+    meas = InfiniteOpt.GeneralVariableRef(m, mindex)
     # test addition
     @testset "Base.:+" begin
         # test infinite + measure
@@ -94,11 +94,11 @@ end
     @variable(m, pt, Point(inf, 0))
     @variable(m, finite)
     data = TestData(par, 0, 5)
-    meas = Measure(finite, data, Int[], Int[], true)
+    meas = Measure(finite, data, Int[], true)
     object = MeasureData(meas, "test")
     mindex = MeasureIndex(1)
     @test InfiniteOpt._add_data_object(m, object) == mindex
-    meas = InfiniteOpt._make_variable_ref(m, mindex)
+    meas = InfiniteOpt.GeneralVariableRef(m, mindex)
     aff1 = (inf + pt) - 2
     aff2 = finite - pt
     aff3 = (finite - meas) + 1
@@ -176,11 +176,11 @@ end
     @variable(m, pt, Point(inf, 0))
     @variable(m, finite)
     data = TestData(par, 0, 5)
-    meas = Measure(finite, data, Int[], Int[], true)
+    meas = Measure(finite, data, Int[], true)
     object = MeasureData(meas, "test")
     mindex = MeasureIndex(1)
     @test InfiniteOpt._add_data_object(m, object) == mindex
-    meas = InfiniteOpt._make_variable_ref(m, mindex)
+    meas = InfiniteOpt.GeneralVariableRef(m, mindex)
     aff1 = (inf + pt) - 2
     aff2 = finite - pt
     aff3 = (finite - meas) + 1
@@ -259,11 +259,11 @@ end
     @variable(m, finite)
     @variable(m, test[1:51])
     data = TestData(par, 0, 5)
-    meas = Measure(finite, data, Int[], Int[], true)
+    meas = Measure(finite, data, Int[], true)
     object = MeasureData(meas, "test")
     mindex = MeasureIndex(1)
     @test InfiniteOpt._add_data_object(m, object) == mindex
-    meas = InfiniteOpt._make_variable_ref(m, mindex)
+    meas = InfiniteOpt.GeneralVariableRef(m, mindex)
     aff1 = (inf + pt) - 2
     aff2 = finite - pt
     aff3 = (finite - meas) + 1
@@ -403,11 +403,11 @@ end
     @variable(m, finite)
     @variable(m, test[1:51])
     data = TestData(par, 0, 5)
-    meas = Measure(finite, data, Int[], Int[], true)
+    meas = Measure(finite, data, Int[], true)
     object = MeasureData(meas, "test")
     mindex = MeasureIndex(1)
     @test InfiniteOpt._add_data_object(m, object) == mindex
-    meas = InfiniteOpt._make_variable_ref(m, mindex)
+    meas = InfiniteOpt.GeneralVariableRef(m, mindex)
     aff1 = (inf + pt) - 2
     aff2 = finite - pt
     aff3 = (finite - meas) + 1
@@ -504,11 +504,11 @@ end
     @variable(m, finite)
     @variable(m, test[1:51])
     data = TestData(par, 0, 5)
-    meas = Measure(finite, data, Int[], Int[], true)
+    meas = Measure(finite, data, Int[], true)
     object = MeasureData(meas, "test")
     mindex = MeasureIndex(1)
     @test InfiniteOpt._add_data_object(m, object) == mindex
-    meas = InfiniteOpt._make_variable_ref(m, mindex)
+    meas = InfiniteOpt.GeneralVariableRef(m, mindex)
     aff1 = (inf + pt) - 2
     aff2 = finite - pt
     aff3 = (finite - meas) + 1
@@ -605,11 +605,11 @@ end
     @variable(m, finite)
     @variable(m, test[1:51])
     data = TestData(par, 0, 5)
-    meas = Measure(finite, data, Int[], Int[], true)
+    meas = Measure(finite, data, Int[], true)
     object = MeasureData(meas, "test")
     mindex = MeasureIndex(1)
     @test InfiniteOpt._add_data_object(m, object) == mindex
-    meas = InfiniteOpt._make_variable_ref(m, mindex)
+    meas = InfiniteOpt.GeneralVariableRef(m, mindex)
     aff1 = (inf + pt) - 2
     aff2 = finite - pt
     aff3 = (finite - meas) + 1
@@ -718,11 +718,11 @@ end
     @variable(m, finite)
     @variable(m, test[1:51])
     data = TestData(par, 0, 5)
-    meas = Measure(finite, data, Int[], Int[], true)
+    meas = Measure(finite, data, Int[], true)
     object = MeasureData(meas, "test")
     mindex = MeasureIndex(1)
     @test InfiniteOpt._add_data_object(m, object) == mindex
-    meas = InfiniteOpt._make_variable_ref(m, mindex)
+    meas = InfiniteOpt.GeneralVariableRef(m, mindex)
     aff1 = (inf + pt) - 2
     aff2 = finite - pt
     aff3 = (finite - meas) + 1
@@ -831,11 +831,11 @@ end
     @variable(m, finite)
     @variable(m, test[1:51])
     data = TestData(par, 0, 5)
-    meas = Measure(finite, data, Int[], Int[], true)
+    meas = Measure(finite, data, Int[], true)
     object = MeasureData(meas, "test")
     mindex = MeasureIndex(1)
     @test InfiniteOpt._add_data_object(m, object) == mindex
-    meas = InfiniteOpt._make_variable_ref(m, mindex)
+    meas = InfiniteOpt.GeneralVariableRef(m, mindex)
     aff1 = (inf + pt) - 2
     aff2 = finite - pt
     aff3 = (finite - meas) + 1
@@ -917,5 +917,83 @@ end
         @test (copy(quad4) - quad4).aff.terms[pt] == 0
         pair = UnorderedPair{GeneralVariableRef}(pt, pt)
         @test (copy(quad4) - quad4).terms[pair] == 0
+    end
+end
+
+# TODO adapt for new NLP types
+# Test the basic expression generation via operators
+@testset "Operator Definition" begin 
+    # setup model data 
+    m = InfiniteModel()
+    @infinite_parameter(m, t in [0, 1])
+    @variable(m, y, Infinite(t))
+    @variable(m, z)
+    # prepare the test grid 
+    aff = 2z - 2
+    quad = y^2 + y
+    nlp = GenericNonlinearExpr{GeneralVariableRef}(:sin, Any[y])
+    # test the multiplication operator
+    @testset "Multiplication Operator" begin
+        for (i, iorder) in [(42, 0), (y, 1), (aff, 1), (quad, 2), (nlp, 3)]
+            for (j, jorder) in [(42, 0), (y, 1), (aff, 1), (quad, 2), (nlp, 3)]
+                if iorder + jorder >= 3
+                    @test isequal((i * j).args, Any[i, j])
+                    @test (i * j).head == :*
+                end
+            end
+        end
+    end
+    # test division operator 
+    @testset "Division Operator" begin
+        for i in [42, y, aff, quad, nlp]
+            for j in [y, aff, quad, nlp]
+                @test isequal((i / j).args, Any[i, j])
+                @test (i / j).head == :/
+            end
+        end
+        @test isequal((nlp / 42).args, Any[nlp, 42])
+    end
+    # test the power operator 
+    @testset "Power Operator" begin
+        for i in [42, y, aff, quad, nlp]
+            for j in [y, aff, quad, nlp]
+                @test isequal((i ^ j).args, Any[i, j])
+            end
+        end
+        # TODO update these once the behavior is settled in JuMP
+        # one_aff = one(JuMP.GenericAffExpr{Float64, GeneralVariableRef})
+        # for i in [y, aff, quad, nlp]
+        #     for f in [Float64, Int]
+        #         if i isa GenericNonlinearExpr
+        #             @test isequal((i ^ f(2)).args, Any[i, f(2)])
+        #         else
+        #             @test isequal(i^f(2), i * i)
+        #         end
+        #         @test isequal((i ^ f(3)).args, Any[i, f(3)])
+        #     end
+        # end
+        # extra tests 
+        # @test isequal(y^0, one_aff)
+        # @test isequal(y^1, y)
+        # @test isequal(y^2, y * y)
+        # @test isequal(y^0.0, one_aff)
+        # @test isequal(y^1.0, y)
+        # @test isequal(y^2.0, y * y)
+    end
+    # test the subtraction operator
+    @testset "Subtraction Operator" begin
+        for i in [42, y, aff, quad, nlp]
+            @test isequal((nlp - i).args, Any[nlp, i])
+            @test isequal((i - nlp).args, Any[i, nlp])
+        end
+        @test isequal((-nlp).args, Any[nlp])
+    end
+    # test the addition operator 
+    @testset "Addition Operator" begin
+        for i in [42, y, aff, quad, nlp]
+            @test isequal((nlp + i).args, Any[nlp, i])
+            @test isequal((i + nlp).args, Any[i, nlp])
+        end
+        @test isequal(+nlp, nlp)
     end
 end

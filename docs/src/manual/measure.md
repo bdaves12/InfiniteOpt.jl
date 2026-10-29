@@ -6,10 +6,10 @@ A technical manual for measures in `InfiniteOpt`. See the respective
 ```@docs
 AbstractMeasureData
 DiscreteMeasureData(::GeneralVariableRef, ::Vector{<:Real}, ::Vector{<:Real})
-DiscreteMeasureData(::AbstractArray{GeneralVariableRef}, ::Vector{<:Real}, ::Vector{<:AbstractArray{<:Real}})
+DiscreteMeasureData(::Array{GeneralVariableRef}, ::Vector{<:Real}, ::Vector{<:Array{<:Real}})
 DiscreteMeasureData
 FunctionalDiscreteMeasureData(::GeneralVariableRef,::Function,::Int,::Type{<:AbstractSupportLabel})
-FunctionalDiscreteMeasureData(::AbstractArray{GeneralVariableRef},::Function,::Int,::Type{<:AbstractSupportLabel})
+FunctionalDiscreteMeasureData(::Array{GeneralVariableRef},::Function,::Int,::Type{<:AbstractSupportLabel})
 FunctionalDiscreteMeasureData
 parameter_refs(::AbstractMeasureData)
 support_label(::AbstractMeasureData)
@@ -46,8 +46,8 @@ InfiniteOpt.MeasureToolbox.∫(::JuMP.AbstractJuMPScalar,::InfiniteOpt.GeneralVa
 InfiniteOpt.MeasureToolbox.uni_integral_defaults
 InfiniteOpt.MeasureToolbox.set_uni_integral_defaults
 InfiniteOpt.MeasureToolbox.clear_uni_integral_defaults
-InfiniteOpt.MeasureToolbox.integral(::JuMP.AbstractJuMPScalar,::AbstractArray{InfiniteOpt.GeneralVariableRef},::Union{Real, AbstractArray{<:Real}},::Union{Real, AbstractArray{<:Real}})
-InfiniteOpt.MeasureToolbox.∫(::JuMP.AbstractJuMPScalar,::AbstractArray{InfiniteOpt.GeneralVariableRef},::Union{Real, AbstractArray{<:Real}},::Union{Real, AbstractArray{<:Real}})
+InfiniteOpt.MeasureToolbox.integral(::JuMP.AbstractJuMPScalar,::Array{InfiniteOpt.GeneralVariableRef},::Union{Real, Array{<:Real}},::Union{Real, Array{<:Real}})
+InfiniteOpt.MeasureToolbox.∫(::JuMP.AbstractJuMPScalar,::Array{InfiniteOpt.GeneralVariableRef},::Union{Real, Array{<:Real}},::Union{Real, Array{<:Real}})
 InfiniteOpt.MeasureToolbox.multi_integral_defaults
 InfiniteOpt.MeasureToolbox.set_multi_integral_defaults
 InfiniteOpt.MeasureToolbox.clear_multi_integral_defaults
@@ -99,9 +99,12 @@ measure_data
 is_analytic
 parameter_refs(::MeasureRef)
 is_used(::MeasureRef)
+used_by_derivative(::MeasureRef)
 used_by_constraint(::MeasureRef)
 used_by_measure(::MeasureRef)
 used_by_objective(::MeasureRef)
+core_object(::MeasureRef)
+parameter_group_int_indices(::MeasureRef)
 ```
 
 ## Modification
@@ -119,7 +122,7 @@ InfiniteOpt.analytic_expansion
 InfiniteOpt.expand_measures
 make_point_variable_ref
 make_semi_infinite_variable_ref
-add_point_variable(::JuMP.Model, ::Any, ::Any, ::Any)
-add_semi_infinite_variable(::JuMP.Model, ::Any, ::Any)
+add_point_variable(::AbstractTransformationBackend, ::Any)
+add_semi_infinite_variable(::AbstractTransformationBackend, ::Any)
 internal_semi_infinite_variable
 ```

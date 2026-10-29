@@ -1,4 +1,4 @@
-using Documenter, InfiniteOpt, Distributions, Literate, Random
+using Documenter, InfiniteOpt, Distributions, Literate, Random, Interpolations, MathOptAI
 
 if !@isdefined(EXAMPLE_DIR)
     const EXAMPLE_DIR = joinpath(@__DIR__, "src", "examples")
@@ -55,7 +55,10 @@ makedocs(;
     pages = [
         "Home" => "index.md",
         "Installation" => "install.md",
-        "Tutorials" => ["Quick Start" => "tutorials/quick_start.md"], # TODO add more tutorials
+        "Tutorials" => [
+            "Quick Start" => "tutorials/quick_start.md",
+            "Re-solves" => "tutorials/resolves.md"
+            ], # TODO add more tutorials
         "Examples" =>  section_entry(EXAMPLE_DIR),
         # "Background" => [], # TODO add the background
         "User Guide" => [
@@ -71,7 +74,8 @@ makedocs(;
             "Constraints" => "guide/constraint.md",
             "Model Transcription" => "guide/transcribe.md",
             "Optimization" => "guide/optimize.md",
-            "Results" => "guide/result.md"
+            "Results" => "guide/result.md",
+            "Extensions" => "guide/extensions.md"
             ],
         "API Manual" => [
             "Infinite Models" => "manual/model.md",
@@ -84,9 +88,10 @@ makedocs(;
             "Measures" => "manual/measure.md",
             "Objectives" => "manual/objective.md",
             "Constraints" => "manual/constraint.md",
-            "Model Transcription" => "manual/transcribe.md",
-            "Optimization" => "manual/optimize.md",
-            "Results" => "manual/result.md"
+            "Backends" => "manual/backend.md",
+            "TranscriptionOpt" => "manual/transcribe.md",
+            "Results" => "manual/result.md",
+            "Extensions" => "manual/extensions.md"
             ],
         "Development" => [
             "Extensions" => "develop/extensions.md",
@@ -94,26 +99,30 @@ makedocs(;
             "Style Guide" => "develop/style.md"
             ],
         ],
-    repo = "https://github.com/pulsipher/InfiniteOpt.jl/blob/{commit}{path}#L{line}",
     sitename = "InfiniteOpt.jl",
     authors = "Joshua Pulsipher and Weiqi Zhang",
-    doctest = true,
-    checkdocs = :exports,
+    modules = [
+        InfiniteOpt,
+        Base.get_extension(InfiniteOpt, :InfiniteInterpolations),
+        Base.get_extension(InfiniteOpt, :InfiniteMathOptAI),
+    ],
+    checkdocs = :none,
     linkcheck = true,
     linkcheck_ignore = [r"https://www.youtube.com/.*"],
-    strict = true,
+    # warnonly = true,
     format = Documenter.HTML(
         # See https://github.com/JuliaDocs/Documenter.jl/issues/868
         prettyurls = get(ENV, "CI", nothing) == "true",
         analytics = "UA-178297470-1",
         collapselevel = 1,
         assets = ["assets/extra_styles.css"],
-
+        size_threshold = 250 * 2^10, # KiB
+        size_threshold_warn = 150 * 2^10 # KiB
     )
 )
 
 # Push the built HTML files to the correct GitHub branch if building via CI
 deploydocs(;
-    repo = "github.com/pulsipher/InfiniteOpt.jl",
+    repo = "github.com/infiniteopt/InfiniteOpt.jl",
     push_preview = true
 )

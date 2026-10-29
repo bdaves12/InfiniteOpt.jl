@@ -4,61 +4,79 @@
     m = InfiniteModel()
     @infinite_parameter(m, par in [0, 1], supports = [0, 1])
     @infinite_parameter(m, pars[1:2] in [0, 1], supports = [0, 1])
+    @parameter_function(m, pf == par -> sin(par))
     @variable(m, x, Infinite(par))
     @variable(m, y, Infinite(par, pars))
-    @variable(m, x0, Point(x, 0))
-    @variable(m, y0, SemiInfinite(y, 0, pars))
-    tm = optimizer_model(m)
-    @variable(tm, a)
-    @variable(tm, b)
-    @variable(tm, c)
-    @variable(tm, d)
-    data = transcription_data(tm)
-    data.infvar_mappings[x] = [a, b, c]
-    data.infvar_supports[x] = [(0.,), (0.5,), (1.,)]
-    data.infvar_lookup[x] = Dict{Vector{Float64}, Int}([0] => 1, [0.5] => 2, [1] => 3)
-    data.infvar_mappings[y] = [a, b, c, d]
-    data.infvar_supports[y] = [(0., [0., 0.]), (0., [1., 1.]), (1., [0., 0.]), (1., [1., 1.])]
-    data.infvar_lookup[y] = Dict{Vector{Float64}, Int}([0, 0, 0] => 1, [0, 1, 1] => 2, 
-                                                       [1, 0, 0] => 3, [1, 1, 1] => 4)
+    x0 = x(0)
+    y0 = y(0, pars)
+    tb = m.backend
+    @variable(tb.model, a)
+    @variable(tb.model, b)
+    @variable(tb.model, c)
+    @variable(tb.model, d)
+    data = IOTO.transcription_data(tb)
+    data.infvar_mappings[pf] = [sin(0), sin(1)]
+    data.infvar_supports[pf] = [(0.,), (1.,)]
+    data.pfunc_lookup[pf] = Dict([0] => sin(0), [1] => sin(1))
+    data.infvar_mappings[x] = [a, b]
+    data.infvar_supports[x] = [(0.,), (1.,)]
+    data.infvar_lookup[x] = Dict([0] => a, [1] => b)
+    data.infvar_mappings[y] = [a b; c d]
+    data.infvar_supports[y] = [(0., [0., 0.]) (0., [1., 1.]); (1., [0., 0.]) (1., [1., 1.])]
+    data.infvar_lookup[y] = Dict([0, 0, 0] => a, [0, 1, 1] => b, [1, 0, 0] => c, [1, 1, 1] => d)
     data.infvar_mappings[y0] = [a, b]
     data.infvar_supports[y0] = [(0., [0., 0.]), (0., [1., 1.])]
-    data.infvar_lookup[y0] = Dict{Vector{Float64}, Int}([0, 0, 0] => 1, [0, 1, 1] => 2)
+    data.infvar_lookup[y0] = Dict([0, 0, 0] => a, [0, 1, 1] => b)
     data.finvar_mappings[x0] = a
-    key = Val(:TransData)
-    IOTO.set_parameter_supports(tm, m)
+    data.infvar_param_idxs[pf] = [1]
+    data.infvar_param_idxs[x] = [1]
+    data.infvar_param_idxs[y] = [1, 2, 3]
+    IOTO.set_parameter_supports(tb, m)
+    # test make_point_variable_ref
+    @testset "make_point_variable_ref" begin
+        # adding a point var from an evaluated paramFunc
+        pfref = GeneralVariableRef(m, -1, PointVariableIndex)
+        testRef = InfiniteOpt.make_point_variable_ref(tb, pf, Float64[1])
+        @test isequal(pfref, testRef)
+        @test IOTO.transcription_variable(pfref) == sin(1)
+        # add a point var that was already added internally
+        var = PointVariable(RestrictedDomainInfo(), pf, [1.0])
+        @test isequal(InfiniteOpt.add_point_variable(tb, var), pfref)
+        @test IOTO.transcription_variable(pfref) == sin(1)
+
+    end
     # test add_point_variable
     @testset "add_point_variable" begin
         # add one that was already added to the infinite model 
-        @test isequal(InfiniteOpt.add_point_variable(tm, x, Float64[0], key), x0)
-        @test transcription_variable(x0) == a
+        var = PointVariable(RestrictedDomainInfo(), x, [0.0])
+        @test isequal(InfiniteOpt.add_point_variable(tb, var), x0)
+        @test IOTO.transcription_variable(x0) == a
         # add one that hasn't been added
-        vref = GeneralVariableRef(m, -1, PointVariableIndex)
-        @test isequal(InfiniteOpt.add_point_variable(tm, x, Float64[1], key), vref)
-        @test transcription_variable(vref) == c
+        vref = GeneralVariableRef(m, -2, PointVariableIndex)
+        var = PointVariable(RestrictedDomainInfo(), x, [1.0])
+        @test isequal(InfiniteOpt.add_point_variable(tb, var), vref)
+        @test IOTO.transcription_variable(vref) == b
         # add one that has been added internally
-        @test isequal(InfiniteOpt.add_point_variable(tm, x, Float64[1], key), vref)
-        @test transcription_variable(vref) == c
+        @test isequal(InfiniteOpt.add_point_variable(tb, var), vref)
+        @test IOTO.transcription_variable(vref) == b
     end
     # test add_semi_infinite_variable
     @testset "add_semi_infinite_variable" begin
         # add one that was already added to the infinite model
-        var = SemiInfiniteVariable(y, Dict{Int, Float64}(1 => 0), [2, 3], [2])
-        @test isequal(InfiniteOpt.add_semi_infinite_variable(tm, var, key), y0)
-        @test transcription_variable(y0) == [a, b]
+        var = SemiInfiniteVariable(RestrictedDomainInfo(), y, [0.0, NaN, NaN], [2])
+        @test isequal(InfiniteOpt.add_semi_infinite_variable(tb, var), y0)
+        @test IOTO.transcription_variable(y0) == [a, b]
         # add a new one
-        var = SemiInfiniteVariable(y, Dict{Int, Float64}(1 => 1), [2, 3], [2])
+        var = SemiInfiniteVariable(RestrictedDomainInfo(), y, [1.0, NaN, NaN], [2])
         vref = GeneralVariableRef(m, -1, SemiInfiniteVariableIndex)
-        @test isequal(InfiniteOpt.add_semi_infinite_variable(tm, var, key), vref)
+        @test isequal(InfiniteOpt.add_semi_infinite_variable(tb, var), vref)
         @test isequal(data.semi_infinite_vars, [var])
-        @test c in transcription_variable(vref)
-        @test d in transcription_variable(vref)
-        @test sort!(supports(vref)) == [([0., 0.], ), ([1., 1.], )]
+        @test IOTO.transcription_expression(vref, tb, [1., 0., 0.]) == c
+        @test IOTO.transcription_expression(vref, tb, [1., 1., 1.]) == d
         # add one that has already been added internally
-        @test isequal(InfiniteOpt.add_semi_infinite_variable(tm, var, key), vref)
+        @test isequal(InfiniteOpt.add_semi_infinite_variable(tb, var), vref)
         @test isequal(data.semi_infinite_vars, [var])
-        @test c in transcription_variable(vref)
-        @test d in transcription_variable(vref)
-        @test sort!(supports(vref)) == [([0., 0.], ), ([1., 1.], )]
+        @test IOTO.transcription_expression(vref, tb, [1., 0., 0.]) == c
+        @test IOTO.transcription_expression(vref, tb, [1., 1., 1.]) == d
     end
 end

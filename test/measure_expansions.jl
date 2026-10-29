@@ -38,54 +38,45 @@
     # test make_point_variable_ref with infinite parameter functions 
     @testset "make_point_variable_ref (Parameter Function)" begin
         f = parameter_function(sin, par1)
-        @test make_point_variable_ref(m, f, [0.]) == 0 
-        @test make_point_variable_ref(Model(), f, [0.]) == 0 
+        @test make_point_variable_ref(m, f, [0.]) == f(0)
     end
-    # test add_point_variable
-    @testset "add_point_variable" begin
-        @test_throws ErrorException add_point_variable(Model(), d1, [0.], Val(:some_key))
-    end
-    # test make_point_variable_ref (optmizer_model)
-    @testset "make_point_variable_ref (optimizer_model)" begin
-        opt_m = Model()
-        opt_m.ext[:my_key] = 42
-        @test_throws ErrorException make_point_variable_ref(opt_m, inf1, Float64[0])
+    # test make_point_variable_ref (backend)
+    @testset "make_point_variable_ref (backend)" begin
+        @test_throws ErrorException make_point_variable_ref(TestBackend(), inf1, Float64[0])
     end
     # test make_semi_infinite_variable_ref (InfiniteModel)
     @testset "make_semi_infinite_variable_ref (InfiniteModel)" begin
         # test first addition
         rvref1 = GeneralVariableRef(m, 1, SemiInfiniteVariableIndex)
-        @test isequal(make_semi_infinite_variable_ref(m, inf2, [1], Float64[1]), rvref1)
+        @test isequal(make_semi_infinite_variable_ref(m, inf2, [1., NaN]), rvref1)
         @test isequal(infinite_variable_ref(rvref1), inf2)
-        @test eval_supports(rvref1) == Dict(1 => Float64(1))
-        @test isequal(make_semi_infinite_variable_ref(m, inf2, [1], Float64[1]), rvref1)
+        @test eval_support(rvref1)[1] == 1
+        @test isequal(make_semi_infinite_variable_ref(m, inf2, [1., NaN]), rvref1)
         @test isequal(infinite_variable_ref(rvref1), inf2)
-        @test eval_supports(rvref1) == Dict(1 => Float64(1))
+        @test isnan(eval_support(rvref1)[2])
         # test second addition
         rvref2 = GeneralVariableRef(m, 2, SemiInfiniteVariableIndex)
-        @test isequal(make_semi_infinite_variable_ref(m, inf2, [1], Float64[0]), rvref2)
+        @test isequal(make_semi_infinite_variable_ref(m, inf2, [0., NaN]), rvref2)
         @test isequal(infinite_variable_ref(rvref2), inf2)
-        @test eval_supports(rvref2) == Dict(1 => Float64(0))
+        @test eval_support(rvref2)[1] == 0
         # test first addition with derivative
         rvref1 = GeneralVariableRef(m, 3, SemiInfiniteVariableIndex)
-        @test isequal(make_semi_infinite_variable_ref(m, d2, [1], Float64[1]), rvref1)
+        @test isequal(make_semi_infinite_variable_ref(m, d2, [1, NaN]), rvref1)
         @test isequal(infinite_variable_ref(rvref1), d2)
-        @test eval_supports(rvref1) == Dict(1 => Float64(1))
+        @test eval_support(rvref1)[1] == 1
         # test second addition with derivative
         rvref2 = GeneralVariableRef(m, 4, SemiInfiniteVariableIndex)
-        @test isequal(make_semi_infinite_variable_ref(m, d2, [1], Float64[0]), rvref2)
+        @test isequal(make_semi_infinite_variable_ref(m, d2, [0, NaN]), rvref2)
         @test isequal(infinite_variable_ref(rvref2), d2)
-        @test eval_supports(rvref2) == Dict(1 => Float64(0))
+        @test isnan(eval_support(rvref2)[2])
     end
     # test add_semi_infinite_variable
     @testset "add_semi_infinite_variable" begin
-        @test_throws ErrorException add_semi_infinite_variable(Model(), Bad(), Val(:some_key))
+        @test_throws ErrorException add_semi_infinite_variable(TestBackend(), Bad())
     end
-    # test make_semi_infinite_variable_ref (optimizer_model)
-    @testset "make_semi_infinite_variable_ref (optimizer_model)" begin
-        opt_m = Model()
-        opt_m.ext[:my_key] = 42
-        @test_throws ErrorException make_semi_infinite_variable_ref(opt_m, inf2, [1], Float64[1])
+    # test make_semi_infinite_variable_ref (backend)
+    @testset "make_semi_infinite_variable_ref (backend)" begin
+        @test_throws ErrorException make_semi_infinite_variable_ref(TestBackend(), inf2, [1., NaN])
     end
     # test _process_aff_result
     @testset "_process_aff_result" begin
@@ -106,10 +97,10 @@ end
     @variable(m, inf1, Infinite(par1))
     @variable(m, inf2, Infinite(par1, par2))
     @variable(m, inf3, Infinite(par2))
-    @variable(m, inf4, Infinite(pars1))
-    @variable(m, inf5, Infinite(pars1, pars2))
+    @variable(m, inf4, Infinite(pars1...))
+    @variable(m, inf5, Infinite(pars1..., pars2))
     @variable(m, inf6, Infinite(pars2))
-    @variable(m, inf7, Infinite(par1, par2, pars1))
+    @variable(m, inf7, Infinite(par1, par2, pars1...))
     @variable(m, inf8, Infinite(pars1[1]))
     @variable(m, inf9, Infinite(pars1[1], par1))
     @variable(m, x)
@@ -118,17 +109,17 @@ end
     d3 = @deriv(inf3, par2)
     d4 = @deriv(inf4, pars1[1])
     d5 = @deriv(inf5, pars1[1])
-    d6 = @deriv(inf6, pars2[1])
+    # d6 = @deriv(inf6, pars2[2]) # no longer supported
     d7 = @deriv(inf7, par1)
     d8 = @deriv(inf8, pars1[1])
     d9 = @deriv(inf9, pars1[1])
     f1 = parameter_function(sin, par1)
     f2 = parameter_function((a,b) -> 1, (par1, par2))
     f3 = parameter_function(cos, par2)
-    f4 = parameter_function(a -> -1, (pars1,))
-    f5 = parameter_function((a,b) -> 1, (pars1, pars2))
+    f4 = parameter_function((a, b) -> -1, (pars1...,))
+    f5 = parameter_function((a,b, c) -> 1, (pars1..., pars2))
     f6 = parameter_function(a -> -1, (pars2,))
-    f7 = parameter_function((a,b,c) -> 1, (par1, par2, pars1))
+    f7 = parameter_function((a,b,c, d) -> 1, (par1, par2, pars1...))
     f8 = parameter_function(cos, pars1[1])
     f9 = parameter_function((a,b) -> 1, (pars1[1], par1))
     # prepare measures
@@ -153,7 +144,7 @@ end
         expected = 0.5 * (inf2(1, par2) + inf2(2, par2))
         @test isequal_canonical(InfiniteOpt.expand_measure(inf2, data1, m), expected)
         # test multi param infinite var with single element evaluation
-        expected = 0.5 * (inf7(par1, par2, [1, pars1[2]]) + inf7(par1, par2, [2, pars1[2]]))
+        expected = 0.5 * (inf7(par1, par2, 1, pars1[2]) + inf7(par1, par2, 2, pars1[2]))
         @test isequal_canonical(InfiniteOpt.expand_measure(inf7, data7, m), expected)
     end
     # test expand_measure (derivatives) with DiscreteMeasureData
@@ -167,13 +158,13 @@ end
         expected = 0.5 * (d2(1, par2) + d2(2, par2))
         @test isequal_canonical(InfiniteOpt.expand_measure(d2, data1, m), expected)
         # test multi param infinite var with single element evaluation
-        expected = 0.5 * (d7(par1, par2, [1, pars1[2]]) + d7(par1, par2, [2, pars1[2]]))
+        expected = 0.5 * (d7(par1, par2, 1, pars1[2]) + d7(par1, par2, 2, pars1[2]))
         @test isequal_canonical(InfiniteOpt.expand_measure(d7, data7, m), expected)
     end
     # test expand_measure (infinite parameter functions) with DiscreteMeasureData
     @testset "Parameter Function (1D DiscreteMeasureData)" begin
         # test single param infinite var with measure param
-        @test InfiniteOpt.expand_measure(f1, data1, m) == 0.5 * (sin(1) + sin(2))
+        @test InfiniteOpt.expand_measure(f1, data1, m) == 0.5 * (f1(1) + f1(2))
         # test single param infinite var without measure param
         @test isequal_canonical(InfiniteOpt.expand_measure(f1, data2, m), 3 * f1)
         # test single param infinite var with measure param and others
@@ -181,25 +172,25 @@ end
         rv1 = GeneralVariableRef(m, idx, SemiInfiniteVariableIndex)
         rv2 = GeneralVariableRef(m, idx + 1, SemiInfiniteVariableIndex)
         @test isequal_canonical(InfiniteOpt.expand_measure(f2, data1, m), 0.5 * (rv1 + rv2))
-        @test eval_supports(rv2) == Dict{Int, Float64}(1 => 2.)
+        @test eval_support(rv2)[1] == 2
         # test multi param infinite var with single element evaluation
         rv1 = GeneralVariableRef(m, idx + 2, SemiInfiniteVariableIndex)
         rv2 = GeneralVariableRef(m, idx + 3, SemiInfiniteVariableIndex)
         @test isequal_canonical(InfiniteOpt.expand_measure(f7, data7, m), 0.5 * (rv1 + rv2))
-        @test eval_supports(rv2) == Dict{Int, Float64}(3 => 2.)
+        @test eval_support(rv2)[3] == 2
     end
     # test expand_measure (infinite variable) with Multi DiscreteMeasureData
     @testset "Infinite Variable (Multi DiscreteMeasureData)" begin
         # test infinite var with measure param
-        expected = inf4([1, 1]) + inf4([2, 2])
+        expected = inf4(1, 1) + inf4(2, 2)
         @test isequal_canonical(InfiniteOpt.expand_measure(inf4, data3, m), expected)
         # test infinite var without measure param
         @test isequal_canonical(InfiniteOpt.expand_measure(inf4, data4, m), 4inf4)
         # test infinite var with measure param and others
-        expected = inf5([1, 1], pars2) + inf5([2, 2], pars2)
+        expected = inf5(1, 1, pars2) + inf5(2, 2, pars2)
         @test isequal_canonical(InfiniteOpt.expand_measure(inf5, data3, m), expected)
         # test infinite var with measure param that is out of order
-        expected = inf4([1.2, 1]) + inf4([2, 2])
+        expected = inf4(1.2, 1) + inf4(2, 2)
         @test isequal_canonical(InfiniteOpt.expand_measure(inf4, data5, m), expected)
         # test infinite var with measure param that doesn't overlap
         @test isequal_canonical(InfiniteOpt.expand_measure(inf8, data6, m), 2inf8)
@@ -215,15 +206,15 @@ end
     # test expand_measure (derivatives) with Multi DiscreteMeasureData
     @testset "Derivative (Multi DiscreteMeasureData)" begin
         # test infinite var with measure param
-        expected = d4([1, 1]) + d4([2, 2])
+        expected = d4(1, 1) + d4(2, 2)
         @test isequal_canonical(InfiniteOpt.expand_measure(d4, data3, m), expected)
         # test infinite var without measure param
         @test isequal_canonical(InfiniteOpt.expand_measure(d4, data4, m), 4d4)
         # test infinite var with measure param and others
-        expected = d5([1, 1], pars2) + d5([2, 2], pars2)
+        expected = d5(1, 1, pars2) + d5(2, 2, pars2)
         @test isequal_canonical(InfiniteOpt.expand_measure(d5, data3, m), expected)
         # test infinite var with measure param that is out of order
-        expected = d4([1.2, 1]) + d4([2, 2])
+        expected = d4(1.2, 1) + d4(2, 2)
         @test isequal_canonical(InfiniteOpt.expand_measure(d4, data5, m), expected)
         # test infinite var with measure param that doesn't overlap
         @test isequal_canonical(InfiniteOpt.expand_measure(d8, data6, m), 2d8)
@@ -239,7 +230,7 @@ end
     # test expand_measure (infinite parameter functions) with Multi DiscreteMeasureData
     @testset "Parameter Function (Multi DiscreteMeasureData)" begin
         # test infinite var with measure param
-        @test InfiniteOpt.expand_measure(f4, data3, m) == -2
+        @test InfiniteOpt.expand_measure(f4, data3, m) == f4(1, 1) + f4(2, 2)
         # test infinite var without measure param
         @test isequal_canonical(InfiniteOpt.expand_measure(f4, data4, m), 4 * f4)
         # test infinite var with measure param and others
@@ -247,28 +238,21 @@ end
         rv1 = GeneralVariableRef(m, idx, SemiInfiniteVariableIndex)
         rv2 = GeneralVariableRef(m, idx + 1, SemiInfiniteVariableIndex)
         @test isequal_canonical(InfiniteOpt.expand_measure(f5, data3, m), rv1 + rv2)
-        @test eval_supports(rv2) == Dict{Int, Float64}(1 => 2, 2 => 2)
+        @test eval_support(rv2)[[1, 2]] == [2, 2]
         # test infinite var with measure param that is out of order
-        @test InfiniteOpt.expand_measure(f4, data5, m) == -2
+        @test InfiniteOpt.expand_measure(f4, data5, m) == f4(1.2, 1) + f4(2, 2)
         # test infinite var with measure param that doesn't overlap
         @test isequal_canonical(InfiniteOpt.expand_measure(f8, data6, m), 2 * f8)
         # test infinite var with measure param that doesn't overlap and there are others
         @test isequal_canonical(InfiniteOpt.expand_measure(f9, data6, m), 2 * f9)
         # test infinite variable has subset of multi params
-        @test InfiniteOpt.expand_measure(f8, data3, m) == cos(1) + cos(2)
+        @test InfiniteOpt.expand_measure(f8, data3, m) == f8(1) + f8(2)
         # test making semi-infinite vars with variable not containing all the measure prefs
         idx = length(InfiniteOpt._data_dictionary(m, SemiInfiniteVariable)) + 1
         rv1 = GeneralVariableRef(m, idx, SemiInfiniteVariableIndex)
         rv2 = GeneralVariableRef(m, idx + 1, SemiInfiniteVariableIndex)
         @test isequal_canonical(InfiniteOpt.expand_measure(f9, data3, m), rv1 + rv2)
-        @test eval_supports(rv2) == Dict{Int, Float64}(1 => 2)
-    end
-    @testset "_make_point_support (1D DiscreteMeasureData)" begin
-        orig_prefs = parameter_list(inf2)
-        support_dict = Dict{Int, Float64}(2 => 42)
-        expected = Float64[23, 42]
-        @test InfiniteOpt._make_point_support(orig_prefs, support_dict, 1, 
-                                              Float64(23)) == expected
+        @test eval_support(rv2)[1] == 2
     end
     # test expand_measure (Semi-infinite variable)
     @testset "Semi-Infinite Variable (1D DiscreteMeasureData)" begin
@@ -279,47 +263,39 @@ end
         expected = 1.5 * (inf2(1, 1) + inf2(1, 1)) 
         @test isequal_canonical(InfiniteOpt.expand_measure(v, data2, m), expected)
         # test single param semi-infinite var with measure param and others
-        v = inf7(1, par2, pars1)
-        expected = 1.5 * (inf7(1, 1, pars1) + inf7(1, 1, pars1))
+        v = inf7(1, par2, pars1...)
+        expected = 1.5 * (inf7(1, 1, pars1...) + inf7(1, 1, pars1...))
         @test isequal_canonical(InfiniteOpt.expand_measure(v, data2, m), expected)
         # test single param semi-infinite var partially from array element
-        v = inf7(1, par2, pars1)
-        expected = 0.5 * (inf7(1, par2, [1, pars1[2]]) + inf7(1, par2, [2, pars1[2]]))
+        v = inf7(1, par2, pars1...)
+        expected = 0.5 * (inf7(1, par2, 1, pars1[2]) + inf7(1, par2, 2, pars1[2]))
         @test isequal_canonical(InfiniteOpt.expand_measure(v, data7, m), expected)
-    end
-    @testset "_make_point_support (Multi DiscreteMeasureData)" begin
-        orig_prefs = parameter_list(inf7)
-        support_dict = Dict{Int, Float64}(1 => 23, 2 => 42)
-        expected = Float64[23, 42, 3, 2]
-        vals = Float64[3, 2]
-        @test InfiniteOpt._make_point_support(orig_prefs, support_dict, [3, 4], 
-                                              vals) == expected
     end
     # test expand_measure (semi-infinite variable)
     @testset "Semi-Infinite Variable (Multi DiscreteMeasureData)" begin
         # test array param semi-infinite var without measure param
-        v = inf5([1, 1], pars2)
+        v = inf5(1, 1, pars2)
         @test isequal_canonical(InfiniteOpt.expand_measure(v, data3, m), v + v)
         # test array param semi-infinite var with measure param
-        expected = 2 * (inf5([1, 1], [1, 1]) + inf5([1, 1], [1, 1]))
+        expected = 2 * (inf5(1, 1, [1, 1]) + inf5(1, 1, [1, 1]))
         @test isequal_canonical(InfiniteOpt.expand_measure(v, data4, m), expected)
         # test array param semi-infinite var with measure param and others
-        v = inf7(1, par2, pars1)
-        expected = inf7(1, par2, [1, 1]) + inf7(1, par2, [2, 2])
+        v = inf7(1, par2, pars1...)
+        expected = inf7(1, par2, 1, 1) + inf7(1, par2, 2, 2)
         @test isequal_canonical(InfiniteOpt.expand_measure(v, data3, m), expected)
         # test array param that is out of order and should make point variable
-        v = inf5(pars1, [1, 1])
-        expected = inf5([1.2, 1], [1, 1]) + inf5([2, 2], [1, 1])
+        v = inf5(pars1..., [1, 1])
+        expected = inf5(1.2, 1, [1, 1]) + inf5(2, 2, [1, 1])
         @test isequal_canonical(InfiniteOpt.expand_measure(v, data5, m), expected)
         # test array param that with no others that partially overlap
-        v = inf5([pars1[1], 1], [1, 1])
+        v = inf5(pars1[1], 1, [1, 1])
         @test isequal_canonical(InfiniteOpt.expand_measure(v, data6, m), 2v)
         # test array param with others that partially overlap
-        v = inf5([pars1[1], 1], pars2)
+        v = inf5(pars1[1], 1, pars2)
         @test isequal_canonical(InfiniteOpt.expand_measure(v, data6, m), 2v)
         # test partial overlap
-        v = inf5([pars1[1], 1], pars2)
-        expected = inf5([1, 1], pars2) + inf5([2, 1], pars2)
+        v = inf5(pars1[1], 1, pars2)
+        expected = inf5(1, 1, pars2) + inf5(2, 1, pars2)
         @test isequal_canonical(InfiniteOpt.expand_measure(v, data3, m), expected)
     end
     # test expand_measure (finite variable)
@@ -364,7 +340,7 @@ end
         expr = x^2 + 2x +3
         @test isequal_canonical(InfiniteOpt.expand_measure(expr, data4, m), expr * 4)
     end
-    # test expand_measure (AffExpr)
+#     # test expand_measure (AffExpr)
     @testset "AffExpr (1D DiscreteMeasureData)" begin
         # test single param AffExpr, no measures
         expr = 2inf1 + par1 - x + 3par2 - 3
@@ -379,11 +355,11 @@ end
     @testset "AffExpr (Multi DiscreteMeasureData)" begin
         # test array param AffExpr, no measures
         expr = inf4 + par1 - x + 3pars1[2] - 1
-        expected = inf4([1, 1]) + inf4([2, 2]) + 2par1 - 2x + 7
+        expected = inf4(1, 1) + inf4(2, 2) + 2par1 - 2x + 7
         @test isequal_canonical(InfiniteOpt.expand_measure(expr, data3, m), expected)
         # test array param AffExpr, with measures
         expr = meas2 - x + par1 - inf4
-        expected = 12 * inf3(1) * x - 4par1 - 2x - inf4([1, 1]) - inf4([2, 2])
+        expected = 12 * inf3(1) * x - 4par1 - 2x - inf4(1, 1) - inf4(2, 2)
         @test isequal_canonical(InfiniteOpt.expand_measure(expr, data3, m), expected)
     end
     # test expand_measure (QuadExpr)
@@ -426,20 +402,20 @@ end
     @testset "QuadExpr (Multi DiscreteMeasureData)" begin
         # test array param QuadExpr with both variables integrated
         expr = 2 * inf4 * inf5 - inf1 * inf2 + x + 2
-        expected = 2 * inf4([1, 1]) * inf5([1, 1], pars2) - 2 * inf1 * inf2 + 
-                   2 * inf4([2, 2]) * inf5([2, 2], pars2) + 2x + 4
+        expected = 2 * inf4(1, 1) * inf5(1, 1, pars2) - 2 * inf1 * inf2 + 
+                   2 * inf4(2, 2) * inf5(2, 2, pars2) + 2x + 4
         @test isequal_canonical(InfiniteOpt.expand_measure(expr, data3, m), expected)
         # test array param QuadExpr with first variable not integrated
         expr = 3 * inf1 * inf4 + par1 - 1
-        expected = 3 * inf1 * inf4([1, 1]) + 3 * inf1 * inf4([2, 2]) + 2par1 - 2
+        expected = 3 * inf1 * inf4(1, 1) + 3 * inf1 * inf4(2, 2) + 2par1 - 2
         @test isequal_canonical(InfiniteOpt.expand_measure(expr, data3, m), expected)
         # test array param QuadExpr with first variable integrated
         expr = 3 * inf5 * inf1 + pars1[1] + 1
-        expected = 2 * (6 * inf5(pars1, [1, 1]) * inf1 + 2pars1[1] + 2)
+        expected = 2 * (6 * inf5(pars1..., [1, 1]) * inf1 + 2pars1[1] + 2)
         @test isequal_canonical(InfiniteOpt.expand_measure(expr, data4, m), expected)
         # test array parameter with first quadratic term becomes number
         expr = pars1[1] * inf4 + 2
-        expected = inf4([1, 1]) + 2 * inf4([2, 2]) + 4
+        expected = inf4(1, 1) + 2 * inf4(2, 2) + 4
         @test isequal_canonical(InfiniteOpt.expand_measure(expr, data3, m), expected)
         # test array parameter with first quadratic term becomes number, 2nd constant
         expr = pars1[1] * x + 2
@@ -451,15 +427,15 @@ end
         @test InfiniteOpt.expand_measure(expr, data3, m) == Float64(expected)
         # test array parameter with 2nd quadratic term becomes number
         expr = inf4 * pars1[1] + 2
-        expected = inf4([1, 1]) + 2 * inf4([2, 2]) + 4
+        expected = inf4(1, 1) + 2 * inf4(2, 2) + 4
         @test isequal_canonical(InfiniteOpt.expand_measure(expr, data3, m), expected)
         # test array parameter with 2nd quadratic term becomes number, 1st constant
         expr = x * pars1[1] + 2
         expected = x + 2 * x + 4
         @test isequal_canonical(InfiniteOpt.expand_measure(expr, data3, m), expected)
     end
-    # test expand_measure (NLPExpr univariate)
-    @testset "NLPExpr (1D DiscreteMeasureData)" begin
+    # test expand_measure (NonlinearExpr univariate)
+    @testset "GenericNonlinearExpr (1D DiscreteMeasureData)" begin
         # test simple
         expr = sin(inf1)
         expected = 0.5 * sin(inf1(1)) + 0.5 * sin(inf1(2))
@@ -469,11 +445,11 @@ end
         expected = 0.5 * (sin(inf1(1)) + 1) + 0.5 * (sin(inf1(2)) + 2)
         @test isequal(expand_measure(expr, data1, m), expected)
     end
-    # test expand_measure (NLPExpr multivariate)
-    @testset "NLPExpr (Multi DiscreteMeasureData)" begin
+    # test expand_measure (NonlinearExpr multivariate)
+    @testset "GenericNonlinearExpr (Multi DiscreteMeasureData)" begin
         # test simple
         expr = sin(inf5)
-        expected = 1 * sin(inf5([1, 1], pars2)) + 1 * sin(inf5([2, 2], pars2))
+        expected = 1 * sin(inf5(1, 1, pars2)) + 1 * sin(inf5(2, 2, pars2))
         @test isequal(expand_measure(expr, data3, m), expected)
     end
     # test expand_measure (measure)
@@ -690,9 +666,8 @@ end
         @constraint(m, c2, 2x - measure(measure(inf1 * x + par1 + inf2, data1),
                                         data3) == 0.)
         @constraint(m, c3, measure(inf2, data1) + inf1 >= 0., 
-                    DomainRestrictions(par2 => [1, 1.5]))
-        @constraint(m, c4, measure(inf4 + y, data2) <= 3., 
-                    DomainRestrictions(par2 => 1))
+                    DomainRestriction(p -> 1 <= p <= 1.5, par2))
+        @constraint(m, c4, measure(inf4 + y, data2) <= 3.)
         @constraint(m, c5, [measure(inf2, data1), x] in MOI.Zeros(2))
         # prepare comparison expressions
         obj = x + 0.5inf1(1) + inf1(2) + 3
@@ -715,18 +690,58 @@ end
         @test name(c5) == "c5"
         @test isequal_canonical(constraint_object(c1).func, inf1 + x)
         @test isequal_canonical(constraint_object(c2).func, c2_expected)
-        @test isequal_canonical(constraint_object(c3).func, c3_expected)
+        @test isequal_canonical(jump_function(constraint_object(c3)), c3_expected)
         @test isequal_canonical(constraint_object(c4).func, c4_expected)
         @test isequal_canonical(constraint_object(c5).func, c5_expected)
         @test constraint_object(c1).set == MOI.GreaterThan(42.)
         @test constraint_object(c2).set == MOI.EqualTo(6.)
-        @test constraint_object(c3).set == MOI.GreaterThan(0.)
+        @test moi_set(constraint_object(c3)) == MOI.GreaterThan(0.)
         @test constraint_object(c4).set == MOI.LessThan(3.)
         @test constraint_object(c5).set == MOI.Zeros(2)
-        @test domain_restrictions(c1) == DomainRestrictions()
-        @test domain_restrictions(c2) == DomainRestrictions()
-        @test domain_restrictions(c3) == DomainRestrictions(par2 => [1, 1.5])
-        @test domain_restrictions(c4) == DomainRestrictions(par2 => 1)
-        @test domain_restrictions(c5) == DomainRestrictions()
+        @test !has_domain_restriction(c1)
+        @test !has_domain_restriction(c2)
+        @test has_domain_restriction(c3)
+        @test !has_domain_restriction(c4)
+        @test !has_domain_restriction(c5)
+    end
+    # test expand_all_measures! with measures inside derivatives
+    @testset "expand_all_measures! (derivatives of measures)" begin
+        m2 = InfiniteModel()
+        @infinite_parameter(m2, t in [0, 1], supports = [0, 0.5, 1])
+        @infinite_parameter(m2, x in [0, 1], supports = [0, 1])
+        @variable(m2, y, Infinite(t, x))
+        @variable(m2, z, Infinite(x))
+        @constraint(m2, c1, ∂(∫(y, t), x) == z)
+        @constraint(m2, c2, @deriv(∫(y^2, t), x^2) <= 1)
+        @constraint(m2, c3, ∂(∫(z, t), x) + z >= 0)  # analytic measure
+        @constraint(m2, c4, z + ∂(∫(x, t), x) == 3)  # the derivative is a constant
+        @constraint(m2, c5, [∂(∫(y, t), x), z] in MOI.Zeros(2))
+        @objective(m2, Min, ∫(∂(∫(y, t), x)^2, x))
+        dy = ∂(y, x)
+        d2y = @deriv(y, x^2)
+        tw = ((0, 0.25), (0.5, 0.5), (1, 0.25))
+        c1_expected = sum(w * dy(s, x) for (s, w) in tw) - z
+        c2_expected = sum(w * (2 * d2y(s, x) * y(s, x) + 2 * dy(s, x)^2) for (s, w) in tw)
+        obj_expected = sum(0.5 * sum(w * dy(s, xs) for (s, w) in tw)^2 for xs in (0, 1))
+        @test isa(expand_all_measures!(m2), Nothing)
+        @test isequal_canonical(constraint_object(c1).func, c1_expected)
+        @test isequal_canonical(constraint_object(c2).func, c2_expected)
+        @test isequal_canonical(objective_function(m2), obj_expected)
+        @test isequal_canonical(constraint_object(c3).func, ∂(z, x) + z)
+        @test isequal_canonical(constraint_object(c4).func, 1.0 * z)
+        @test isequal_canonical(constraint_object(c5).func,
+                                AbstractJuMPScalar[c1_expected + z, z])
+        @test constraint_object(c1).set == MOI.EqualTo(0.)
+        @test constraint_object(c2).set == MOI.LessThan(1.)
+        @test constraint_object(c3).set == MOI.GreaterThan(0.)
+        @test constraint_object(c4).set == MOI.EqualTo(2.)
+        @test constraint_object(c5).set == MOI.Zeros(2)
+        # nonlinear measure functions are not supported by `deriv`
+        m3 = InfiniteModel()
+        @infinite_parameter(m3, t in [0, 1], supports = [0, 1])
+        @infinite_parameter(m3, x in [0, 1])
+        @variable(m3, y, Infinite(t, x))
+        @constraint(m3, ∂(∫(sin(y), t), x) == 0)
+        @test_throws ErrorException expand_all_measures!(m3)
     end
 end

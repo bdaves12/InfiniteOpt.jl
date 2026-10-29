@@ -13,11 +13,6 @@
                     FunctionalDiscreteMeasureData(t, IOMT._trapezoid_coeff, 0, All, 
                                NoGenerativeSupports(),default_weight, 0, 1, false)
     end
-    # test _ensure_independent_param
-    @testset "_ensure_independent_param" begin
-        @test IOMT._ensure_independent_param(t, Automatic()) isa Nothing
-        @test_throws ErrorException IOMT._ensure_independent_param(x[1], Automatic())
-    end
     # test generate_integral_data (Gauss-Legendre)
     @testset "generate_integral_data (Gauss-Legendre)" begin
         @test generate_integral_data(t, 0, 1, GaussLegendre()) isa DiscreteMeasureData
@@ -43,11 +38,17 @@
         expected = [0.08333333333333333, 0.3333333333333333, 0.16666666666666666,
                     0.3333333333333333, 0.08333333333333333]
         @test all(abs.(generate_integral_data(t, 0, 1, FEGaussLobatto()).coeff_function([0, 0.5, 1]) .- expected) .< 0.00005)
+        @test generate_integral_data(t, 0, 1, FEGaussLobatto(), num_nodes = 2).generative_supp_info isa NoGenerativeSupports
         @variable(m, flob, Infinite(t))
-        integral(flob, t, 0, 1, eval_method = FEGaussLobatto(), num_nodes = 3)
+        @test integral(flob, t, 0, 1, eval_method = FEGaussLobatto(), num_nodes = 3) isa GeneralVariableRef
         add_generative_supports(t)
         lobb_supps = supports(t, label = All)
         @test all(abs.(lobb_supps .- [0, .25, .5, .75, 1] .< .000005))
+        # test case with no generative supports
+        @test integral(flob, t, 0, 1, eval_method = FEGaussLobatto(), num_nodes = 2) isa GeneralVariableRef
+        add_generative_supports(t)
+        lobb_supps = supports(t, label = All)
+        @test all(abs.(lobb_supps .- [0, .25, .5, .75, 1] .< .000005)) 
     end
     # test generate_integral_data (Gauss-Radau)
     @testset "generate_integral_data (Gauss-Radau)" begin
@@ -63,7 +64,10 @@
      # test generate_integral_data (Gauss-Chebyshev)
     @testset "generate_integral_data (Gauss-Chebyshev)" begin
         @test generate_integral_data(t, 0, 1, GaussChebyshev(3)) isa DiscreteMeasureData
-        @test generate_integral_data(t, 0, 1, GaussChebyshev(3)).coefficients == FastGaussQuadrature.gausschebyshev(3, 3)[2] * 1/2
+        @test generate_integral_data(t, 0, 1, GaussChebyshev(3)).coefficients == FastGaussQuadrature.gausschebyshevv(3)[2] * 1/2
+        @test generate_integral_data(t, 0, 1, GaussChebyshev(1)).coefficients == FastGaussQuadrature.gausschebyshevt(3)[2] * 1/2
+        @test generate_integral_data(t, 0, 1, GaussChebyshev(2)).coefficients == FastGaussQuadrature.gausschebyshevu(3)[2] * 1/2
+        @test generate_integral_data(t, 0, 1, GaussChebyshev(4)).coefficients == FastGaussQuadrature.gausschebyshevw(3)[2] * 1/2
         @test_throws ErrorException GaussChebyshev(5)
     end
     # test generate_integral_data (Gauss-Laguerre)
@@ -204,7 +208,7 @@ end
     m = InfiniteModel();
     @infinite_parameter(m, x[1:2] in [0, 10])
     @infinite_parameter(m, xi[1:2] in [0, 5])
-    @infinite_parameter(m, y[2:3] in [0, 1])
+    @infinite_parameter(m, y[1:2] in [0, 1])
     @variable(m, inf1, Infinite(x))
     @variable(m, inf2, Infinite(xi))
     @variable(m, inf3, Infinite(y))
@@ -224,7 +228,6 @@ end
         @test InfiniteOpt._index_type(integral(inf2, xi)) == MeasureIndex
         @test InfiniteOpt._index_type(integral(inf1, x, 1, 2)) == MeasureIndex
         @test InfiniteOpt._index_type(integral(inf2, xi, 1, 2)) == MeasureIndex
-        @test_throws ErrorException integral(inf3, y, [0, 0], [1, 1])
         @test_throws ErrorException integral(inf1, x, 3, 1)
         @test_throws ErrorException integral(inf1, x, -1, 1)
         @test_throws ErrorException integral(inf1, x, 9, 11)
@@ -235,7 +238,7 @@ end
         @test InfiniteOpt._index_type(∫(inf2, xi)) == MeasureIndex
         @test InfiniteOpt._index_type(∫(inf1, x, 1, 2)) == MeasureIndex
         @test InfiniteOpt._index_type(∫(inf2, xi, 1, 2)) == MeasureIndex
-        @test_throws ErrorException ∫(inf3, y, [0, 0], [1, 1])
+        @test_throws ErrorException ∫(inf3, y, zeros(2, 1), ones(2, 1))
         @test_throws ErrorException ∫(inf1, x, 3, 1)
         @test_throws ErrorException ∫(inf1, x, -1, 1)
         @test_throws ErrorException ∫(inf1, x, 9, 11)

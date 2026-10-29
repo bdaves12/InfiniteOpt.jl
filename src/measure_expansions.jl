@@ -2,20 +2,21 @@
 #                       MEASURE VARIABLE CREATION METHODS
 ################################################################################
 """
-    make_point_variable_ref(write_model::Union{InfiniteModel, JuMP.Model},
-                            ivref::GeneralVariableRef,
-                            support::Vector{Float64}
-                            )::GeneralVariableRef
+    make_point_variable_ref(
+        write_model::Union{InfiniteModel, AbstractTransformationBackend},
+        ivref::GeneralVariableRef,
+        support::Vector{Float64}
+        )::GeneralVariableRef
 
 Make a point variable for infinite variable/derivative `ivref` at `support`, add it to
 the `write_model`, and return the `GeneralVariableRef`. This is an internal method
 for point variables produced by expanding measures via [`expand_measure`](@ref).
-This is also useful for those writing extension optimizer models and wish to
+This is also useful for those writing extension transformation backends and wish to
 expand measures without modifiying the `InfiniteModel`. In such cases, `write_model`
-should be the optimizer model and 
-[`add_point_variable`](@ref add_point_variable(::JuMP.Model, ::Any, ::Any, ::Any)) 
+should be the transformation backend and 
+[`add_point_variable`](@ref add_point_variable(::AbstractTransformationBackend, ::Any, ::Any)) 
 should be extended appropriately for point variables. Errors if `write_model` is
-an optimizer model and `add_point_variable` is not properly extended. 
+an transformation backend and `add_point_variable` is not properly extended. 
 
 Note this is also accomodates infinite parameter functions, in which case the 
 infinite parameter function is called with the support as input. 
@@ -33,147 +34,107 @@ function make_point_variable_ref(
     write_model::InfiniteModel, 
     ivref, 
     support, 
-    ::Union{Type{InfiniteVariableIndex}, Type{DerivativeIndex}}
-    )::GeneralVariableRef
-    prefs = parameter_list(ivref)
-    for i in eachindex(support)
-        support[i] = round(support[i], sigdigits = significant_digits(prefs[i]))
-    end
-    pindex = get(write_model.point_lookup, (ivref, support), nothing)
-    if pindex === nothing
-        base_info = JuMP.VariableInfo(false, NaN, false, NaN, false, NaN, false,
-                                      NaN, false, false)
-        info = _update_point_info(base_info, dispatch_variable_ref(ivref), support)
-        var = PointVariable(_make_float_info(info), ivref, support)
-        return JuMP.add_variable(write_model, var; add_support = false)
-    else
-        return _make_variable_ref(write_model, pindex)
-    end
-end
-
-# Infinite parameter function index (this works for both optimizer and infinite models)
-function make_point_variable_ref(
-    write_model, 
-    fref, 
-    support, 
-    ::Type{ParameterFunctionIndex}
-    )::Float64
-    prefs = raw_parameter_refs(fref)
-    supp_tuple = Tuple(support, prefs)
-    func = raw_function(fref)
-    return func(supp_tuple...)
+    ::Union{Type{InfiniteVariableIndex}, Type{DerivativeIndex}, Type{ParameterFunctionIndex}}
+    )
+    var = _build_point_variable(ivref, support, parameter_list(ivref))
+    return JuMP.add_variable(write_model, var; add_support = false)
 end
 
 """
-    add_point_variable(model::JuMP.Model, ivref::GeneralVariableRef, 
-                       support::Vector{Float64}, key::Val{:ext_key_name}
-                       )::GeneralVariableRef
+    add_point_variable(
+        backend::AbstractTransformationBackend, 
+        var::PointVariable
+    )::GeneralVariableRef
 
-Add a point variable (defined by restricting `ivref` to `support`) to the 
-optimizer model `model` (with `key`) and return the correct `InfiniteOpt` 
+Add a point variable `var` to the 
+tranformation backend `backend` and return the correct `InfiniteOpt` 
 variable reference. This is an internal method used by 
 [`make_point_variable_ref`](@ref) to make point variables when the `write_model` 
-is an optimizer model. This is useful for extensions that wish to expand 
+is an transformation backend. This is useful for extensions that wish to expand 
 measures, but without changing the original `InfiniteModel`. An error is thrown 
-for unextended optimizer model types.
+for unextended backend types.
 """
-function add_point_variable(model::JuMP.Model, ivref, supp, key)
-    error("`add_point_variable` not defined for an optimizer model with key ",
-          "`$(typeof(key).parameters[1])`.")
+function add_point_variable(backend::AbstractTransformationBackend, var)
+    error("`add_point_variable` not defined for transformation backends of type " *
+          "`$(typeof(backend))`.")
 end
 
-# Store/add the variable to the optimizer model via add_measure_variable
+# Store/add the variable to the transformation backend via add_measure_variable
 # This avoids changing the InfiniteModel unexpectedly
 function make_point_variable_ref(
-    write_model::JuMP.Model, # this should be an optimizer model
+    write_model::AbstractTransformationBackend,
     ivref::GeneralVariableRef,
     support::Vector{Float64}
     )
-    return make_point_variable_ref(write_model, ivref, support, _index_type(ivref))
-end
-
-# Infinite variable index
-function make_point_variable_ref(
-    write_model::JuMP.Model, 
-    ivref, 
-    support, 
-    ::Union{Type{InfiniteVariableIndex}, Type{DerivativeIndex}}
-    )::GeneralVariableRef
-    prefs = parameter_list(ivref)
-    for i in eachindex(support)
-        support[i] = round(support[i], sigdigits = significant_digits(prefs[i]))
-    end 
-    opt_key = optimizer_model_key(write_model)
-    return add_point_variable(write_model, ivref, support, Val(opt_key))
+    var = _build_point_variable(ivref, support, parameter_list(ivref))
+    return add_point_variable(write_model, var)
 end
 
 """
-    make_semi_infinite_variable_ref(write_model::Union{InfiniteModel, JuMP.Model},
-                                    ivref::GeneralVariableRef,
-                                    indices::Vector{Int},
-                                    values::Vector{Float64}
-                                    )::GeneralVariableRef
+    make_semi_infinite_variable_ref(
+        write_model::Union{InfiniteModel, AbstractTransformationBackend},
+        ivref::GeneralVariableRef,
+        eval_support::Vector{Float64}
+        )::GeneralVariableRef
 
 Make a semi-infinite variable for infinite variable/derivative/parameter 
-function `ivref` at `support`, add it to the `write_model`, and return the 
-`GeneralVariableRef`. This is an internal method for semi-infinite variables 
+function `ivref` at `eval_support` (see [`SemiInfiniteVariable`](@ref)), add it to 
+the `write_model`, and return the `GeneralVariableRef`. This is an internal method 
+for semi-infinite variables 
 produced by expanding measures via [`expand_measure`](@ref). This is also useful 
-for those writing extension optimizer models and wish to expand measures without 
+for those writing extension transformation backends and wish to expand measures without 
 modifiying the `InfiniteModel`. In such cases, `write_model` should be the 
-optimizer model and 
-[`add_semi_infinite_variable`](@ref add_semi_infinite_variable(::JuMP.Model, ::Any, ::Any)) 
+transformation backend and 
+[`add_semi_infinite_variable`](@ref add_semi_infinite_variable(::AbstractTransformationBackend, ::Any)) 
 should be extended appropriately for semi-infinite variables. Errors if 
-`write_model` is an optimizer model and `add_semi_infinite_variable` is not 
-properly extended. Note this is only intended for optimizer models that are 
-currently stored in `InfiniteModel.optimizer_model`.
+`write_model` is an transformation backend and `add_semi_infinite_variable` is not 
+properly extended. Note this is only intended for transformation backends that are 
+currently stored in `InfiniteModel.backend`.
 """
 function make_semi_infinite_variable_ref(
     write_model::InfiniteModel,
     ivref::GeneralVariableRef,
-    indices::Vector{Int},
-    values::Vector{Float64}
-    )::GeneralVariableRef
-    eval_supps = Dict(indices[i] => values[i] for i in eachindex(indices))
-    existing_index = get(write_model.semi_lookup, (ivref, eval_supps), nothing)
-    if existing_index === nothing
-        var = JuMP.build_variable(error, ivref, eval_supps, check = false)
+    eval_support::Vector{Float64}
+    )
+    existing_index = get(write_model.semi_lookup, (ivref, eval_support), nothing)
+    if isnothing(existing_index)
+        var = JuMP.build_variable(error, ivref, eval_support, check = false)
         return JuMP.add_variable(write_model, var, add_support = false)
     else 
-        return _make_variable_ref(write_model, existing_index)
+        return GeneralVariableRef(write_model, existing_index)
     end
 end
 
 """
-    add_semi_infinite_variable(model::JuMP.Model, var::SemiInfiniteVariable, 
-                               key::Val{:ext_key_name})::GeneralVariableRef
+    add_semi_infinite_variable(
+        backend::AbstractTransformationBackend, 
+        var::SemiInfiniteVariable, 
+        )::GeneralVariableRef
 
-Add a semi-infinite variable `var` to the optimizer model `model` (with `key`) 
+Add a semi-infinite variable `var` to the transformation backend `backend`
 and return the correct `InfiniteOpt` variable reference. This is an internal 
 method used by [`make_semi_infinite_variable_ref`](@ref) to make semi-infinite 
-variables when the `write_model` is an optimizer model. This is useful for 
+variables when the `write_model` is a transformation backend. This is useful for 
 extensions that wish to expand measures, but without changing the original 
-`InfiniteModel`. An error is thrown for optimizer model types. Note if this is 
+`InfiniteModel`. An error is thrown for new transformation backend types. Note if this is 
 extended, than [`internal_semi_infinite_variable`](@ref) should also be extended 
 in order to direct semi-infinite variables references to the underlying 
 [`SemiInfiniteVariable`](@ref).
 """
-function add_semi_infinite_variable(model::JuMP.Model, var, key)
-    error("`add_semi_infinite_variable` not defined for an optimizer model ",
-          "with key `$(typeof(key).parameters[1])`.")
+function add_semi_infinite_variable(backend::AbstractTransformationBackend, var)
+    error("`add_semi_infinite_variable` not defined for transformation backends of type " *
+          "`$(typeof(backend))`.")
 end
 
 
-# Add semi-infinite infinite variables in the optimizer model without modifying the InfiniteModel
+# Add semi-infinite infinite variables in the transformation backend without modifying the InfiniteModel
 function make_semi_infinite_variable_ref(
-    write_model::JuMP.Model,
+    write_model::AbstractTransformationBackend,
     ivref::GeneralVariableRef,
-    indices::Vector{Int},
-    values::Vector{Float64}
-    )::GeneralVariableRef
-    eval_supps = Dict(indices[i] => values[i] for i in eachindex(indices))
-    var = JuMP.build_variable(error, ivref, eval_supps, check = false)
-    key = optimizer_model_key(write_model)
-    return add_semi_infinite_variable(write_model, var, Val(key))
+    eval_support::Vector{Float64}
+    )
+    var = JuMP.build_variable(error, ivref, eval_support, check = false)
+    return add_semi_infinite_variable(write_model, var)
 end
 
 # Helper function for reducing singleton affine expressions
@@ -201,8 +162,11 @@ end
 #                          EXPAND_MEASURE DEFINITIONS
 ################################################################################
 """
-    expand_measure(expr, data::AbstractMeasureData,
-                   write_model::JuMP.AbstractModel)::JuMP.AbstractJuMPScalar
+    expand_measure(
+        expr, 
+        data::AbstractMeasureData,
+        write_model::Union{InfiniteModel, AbstractTransformationBackend}
+        )::JuMP.AbstractJuMPScalar
 
 Return the finite reformulation of a measure containing a variable/parameter
 expression `expr` with measure data `data`. Here `write_model` is the target
@@ -217,20 +181,23 @@ measure data types. Principally, this is leveraged to enable the user methods
 function expand_measure end
 
 # GeneralVariableRef
-function expand_measure(vref::GeneralVariableRef,
-                        data::DiscreteMeasureData,
-                        write_model::JuMP.AbstractModel
-                        )::Union{JuMP.AbstractJuMPScalar, Float64}
+function expand_measure(
+    vref::GeneralVariableRef,
+    data::DiscreteMeasureData,
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
+    )
     return expand_measure(vref, _index_type(vref), data, write_model)
 end
 
 # InfiniteVariableRef/DerivativeRef/ParameterFunctionRef (1D DiscreteMeasureData)
-function expand_measure(ivref::GeneralVariableRef,
-                        index_type::Union{Type{InfiniteVariableIndex}, Type{DerivativeIndex}, Type{ParameterFunctionIndex}},
-                        data::DiscreteMeasureData{GeneralVariableRef, 1},
-                        write_model::JuMP.AbstractModel)
+function expand_measure(
+    ivref::GeneralVariableRef,
+    index_type::Union{Type{InfiniteVariableIndex}, Type{DerivativeIndex}, Type{ParameterFunctionIndex}},
+    data::DiscreteMeasureData{GeneralVariableRef, 1},
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
+    )
     # pull in the needed information
-    var_prefs = parameter_list(ivref)
+    var_prefs = raw_parameter_refs(ivref)
     pref = parameter_refs(data)
     supps = supports(data)
     coeffs = coefficients(data)
@@ -241,34 +208,62 @@ function expand_measure(ivref::GeneralVariableRef,
         return JuMP.GenericAffExpr{Float64, GeneralVariableRef}(0, ivref => var_coef)
     # make point variables if var_prefs = pref (it is the only dependence)
     elseif length(var_prefs) == 1
-        return _MA.@rewrite(sum(coeffs[i] * w(supps[i]) *
-                    make_point_variable_ref(write_model, ivref, [supps[i]])
-                    for i in eachindex(coeffs)))
+        return @_expr(sum(
+            coeffs[i] * w(supps[i]) *
+            make_point_variable_ref(write_model, ivref, [supps[i]])
+            for i in eachindex(coeffs)
+        ))
     # make semi-infinite variables if the variable contains other parameters
     else
-        index = [findfirst(isequal(pref), var_prefs)]
-        return _MA.@rewrite(sum(coeffs[i] * w(supps[i]) *
-                    make_semi_infinite_variable_ref(write_model, ivref, index, [supps[i]])
-                    for i in eachindex(coeffs)))
+        return @_expr(sum(
+            coeffs[i] * w(supps[i]) *
+            make_semi_infinite_variable_ref(
+                write_model, 
+                ivref, 
+                [p == pref ? supps[i] : NaN for p in var_prefs]
+            )
+            for i in eachindex(coeffs)
+        ))
     end
 end
 
+# produce the eval_support needed for a semi-infinite variable
+function _finalize_eval_support!(base_eval_supp, supp, var_prefs, prefs)
+    # we have a group of dependent parameters
+    if _index_type(first(prefs)) == DependentParameterIndex
+        start_idx = findfirst(isequal(first(prefs)), var_prefs)
+        base_eval_supp[start_idx:start_idx+length(prefs)-1] = supp
+    else # we have multiple independent parameters
+        for (i, pref) in enumerate(prefs)
+            idx = findfirst(isequal(pref), var_prefs)
+            if !isnothing(idx)
+                base_eval_supp[idx] = supp[i]
+            end
+        end
+    end
+    return base_eval_supp
+end
+
 # InfiniteVariableRef/DerivativeRef/ParameterFunctionRef (Multi DiscreteMeasureData)
-function expand_measure(ivref::GeneralVariableRef,
-                        index_type::Union{Type{InfiniteVariableIndex}, Type{DerivativeIndex}, Type{ParameterFunctionIndex}},
-                        data::DiscreteMeasureData{Vector{GeneralVariableRef}, 2},
-                        write_model::JuMP.AbstractModel)
+function expand_measure(
+    ivref::GeneralVariableRef,
+    index_type::Union{Type{InfiniteVariableIndex}, Type{DerivativeIndex}, Type{ParameterFunctionIndex}},
+    data::DiscreteMeasureData{Vector{GeneralVariableRef}, 2},
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
+    )
     # pull in the needed information
-    var_prefs = parameter_list(ivref)
+    var_prefs = raw_parameter_refs(ivref)
     prefs = parameter_refs(data)
     supps = supports(data)
     coeffs = coefficients(data)
     w = weight_function(data)
     # var_prefs == prefs so let's make a point variable
-    if isequal(var_prefs, prefs)
-        return _MA.@rewrite(sum(coeffs[i] * w(supps[:, i]) *
-                    make_point_variable_ref(write_model, ivref, supps[:, i])
-                    for i in eachindex(coeffs)))
+    if isequal(var_prefs.values, prefs)
+        return @_expr(sum(
+            coeffs[i] * w(supps[:, i]) *
+            make_point_variable_ref(write_model, ivref, supps[:, i])
+            for i in eachindex(coeffs)
+        ))
     # treat variable as constant if doesn't have measure parameter
     elseif !any(any(isequal(pref), var_prefs) for pref in prefs)
         var_coef = sum(coeffs[i] * w(supps[:, i]) for i in eachindex(coeffs))
@@ -277,46 +272,43 @@ function expand_measure(ivref::GeneralVariableRef,
     elseif all(any(isequal(pref), prefs) for pref in var_prefs)
         indices = [findfirst(isequal(pref), prefs) for pref in var_prefs]
         new_supps = supps[indices, :]
-        return _MA.@rewrite(sum(coeffs[i] * w(supps[:, i]) *
-                    make_point_variable_ref(write_model, ivref, new_supps[:, i])
-                    for i in eachindex(coeffs)))
+        return @_expr(sum(
+            coeffs[i] * w(supps[:, i]) *
+            make_point_variable_ref(write_model, ivref, new_supps[:, i])
+            for i in eachindex(coeffs)
+        ))
     # make semi-infinite variables if the variable contains other parameters
     else
-        # get indices of each pref to map properly
-        indices = [findfirst(isequal(pref), var_prefs) for pref in prefs]
-        # check that if any of the indices are empty and truncate as needed
-        empty = map(i -> i === nothing, indices)
-        if any(empty)
-            indices = convert(Vector{Int}, deleteat!(indices, empty))
-            supps = supps[.!empty, :]
-        end
-        return _MA.@rewrite(sum(coeffs[i] * w(supps[:, i]) *
-                    make_semi_infinite_variable_ref(write_model, ivref, indices, supps[:, i])
-                    for i in eachindex(coeffs)))
+        return @_expr(sum(
+            coeffs[i] * w(supps[:, i]) *
+            make_semi_infinite_variable_ref(
+                write_model,
+                ivref, 
+                _finalize_eval_support!(
+                    fill(NaN, length(var_prefs)),  
+                    supps[:, i], 
+                    var_prefs,
+                    prefs
+                )
+            )
+            for i in eachindex(coeffs)
+        ))
     end
 end
 
-# Write point support given semi_infinite info and the support
-function _make_point_support(
-    orig_prefs::Vector{GeneralVariableRef},
-    support_dict::Dict{Int, Float64},
-    idx::Int, 
-    value::Float64
-    )::Vector{Float64}
-    return [i == idx ? value : support_dict[i] for i in eachindex(orig_prefs)]
-end
-
 # SemiInfiniteVariableRef (1D DiscreteMeasureData)
-function expand_measure(rvref::GeneralVariableRef,
-                        index_type::Type{SemiInfiniteVariableIndex},
-                        data::DiscreteMeasureData{GeneralVariableRef, 1},
-                        write_model::JuMP.AbstractModel)
+function expand_measure(
+    rvref::GeneralVariableRef,
+    index_type::Type{SemiInfiniteVariableIndex},
+    data::DiscreteMeasureData{GeneralVariableRef, 1},
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
+    )
     # pull in the needed information
     drvref = dispatch_variable_ref(rvref)
     ivref = infinite_variable_ref(drvref)
     orig_prefs = parameter_list(ivref)
     var_prefs = parameter_list(drvref)
-    eval_supps = eval_supports(drvref)
+    eval_supp = eval_support(drvref)
     pref = parameter_refs(data)
     supps = supports(data)
     coeffs = coefficients(data)
@@ -327,46 +319,44 @@ function expand_measure(rvref::GeneralVariableRef,
         expr = JuMP.GenericAffExpr{Float64, GeneralVariableRef}(0, rvref => var_coef)
     # make point variables if var_prefs = pref (it is the only dependence)
     elseif length(var_prefs) == 1
-        index = findfirst(isequal(pref), orig_prefs)
-        expr = _MA.@rewrite(sum(coeffs[i] * w(supps[i]) *
-                    make_point_variable_ref(write_model, ivref,
-                    _make_point_support(orig_prefs, eval_supps, index, supps[i]))
-                    for i in eachindex(coeffs)))
+        expr = @_expr(sum(
+            coeffs[i] * w(supps[i]) *
+            make_point_variable_ref(
+                write_model, 
+                ivref,
+                [isnan(s) ? supps[i] : s for s in eval_supp]
+            )
+            for i in eachindex(coeffs)
+        ))
     # make semi-infinite variables if the variable contains other parameters
     else
-        index = findfirst(isequal(pref), orig_prefs)
-        collected_indices = collect(keys(eval_supps))
-        vals = map(k -> eval_supps[k], collected_indices) # a support will be appended on the fly
-        indices = push!(collected_indices, index)
-        expr = _MA.@rewrite(sum(coeffs[i] * w(supps[i]) *
-                    make_semi_infinite_variable_ref(write_model, ivref, indices, vcat(vals, supps[i]))
-                    for i in eachindex(coeffs)))
+        idx = findfirst(isequal(pref), orig_prefs)
+        expr = @_expr(sum(
+            coeffs[i] * w(supps[i]) *
+            make_semi_infinite_variable_ref(
+                write_model, 
+                ivref,
+                [j == idx ? supps[i] : s for (j, s) in enumerate(eval_supp)]
+            )
+            for i in eachindex(coeffs)
+        ))
     end
     return expr
 end
 
-# Write point support given semi_infinite info and the support
-function _make_point_support(orig_prefs::Vector{GeneralVariableRef},
-                             support_dict::Dict{Int, Float64},
-                             new_indices::Vector{Int},
-                             values::Vector{Float64})::Vector{Float64}
-    # these might overlap with the old dict, so we favor the old dict
-    new_dict = Dict(new_indices[i] => values[i] for i in eachindex(values))
-    return [haskey(support_dict, i) ? support_dict[i] : new_dict[i]
-            for i in eachindex(orig_prefs)]
-end
-
 # SemiInfiniteVariableRef (Multi DiscreteMeasureData)
-function expand_measure(rvref::GeneralVariableRef,
-                        index_type::Type{SemiInfiniteVariableIndex},
-                        data::DiscreteMeasureData{Vector{GeneralVariableRef}, 2},
-                        write_model::JuMP.AbstractModel)
+function expand_measure(
+    rvref::GeneralVariableRef,
+    index_type::Type{SemiInfiniteVariableIndex},
+    data::DiscreteMeasureData{Vector{GeneralVariableRef}, 2},
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
+    )
     # pull in the needed information
     drvref = dispatch_variable_ref(rvref)
     ivref = infinite_variable_ref(drvref)
-    orig_prefs = parameter_list(ivref)
+    orig_prefs = raw_parameter_refs(ivref)
     var_prefs = parameter_list(drvref)
-    eval_supps = eval_supports(drvref)
+    eval_supp = eval_support(drvref)
     prefs = parameter_refs(data)
     supps = supports(data)
     coeffs = coefficients(data)
@@ -374,50 +364,52 @@ function expand_measure(rvref::GeneralVariableRef,
     # treat variable as constant if doesn't have measure parameter
     if !any(any(isequal(pref), var_prefs) for pref in prefs)
         var_coef = sum(coeffs[i] * w(supps[:, i]) for i in eachindex(coeffs))
-        expr = JuMP.GenericAffExpr{Float64, GeneralVariableRef}(0, rvref => var_coef)
+        return JuMP.GenericAffExpr{Float64, GeneralVariableRef}(0, rvref => var_coef)
+    end
+    vt_idx_to_supp_idx = Dict(
+        i => findfirst(isequal(orig_prefs[i]), prefs) 
+        for i in eachindex(orig_prefs) if orig_prefs[i] in prefs
+    )
     # make point variables if prefs includes all var_prefs
-    elseif all(any(isequal(pref), prefs) for pref in var_prefs)
-        # get the indices of measure prefs to reorder/truncate as needed
-        supp_indices = [findfirst(isequal(pref), prefs) for pref in var_prefs]
-        # reorder/truncate if necesary
-        if supp_indices != 1:size(supps, 1)
-            supps = supps[supp_indices, :]
-        end
-        # get the parameter indices of the variable parameters to be reduced
-        indices = [findfirst(isequal(pref), orig_prefs) for pref in var_prefs]
-        # make the expression
-        expr = _MA.@rewrite(sum(coeffs[i] * w(supps[:, i]) *
-                    make_point_variable_ref(write_model, ivref,
-                    _make_point_support(orig_prefs, eval_supps, indices, supps[:, i]))
-                    for i in eachindex(coeffs)))
+    if all(any(isequal(pref), prefs) for pref in var_prefs)
+        expr = @_expr(sum(
+            coeffs[i] * w(supps[:, i]) *
+            make_point_variable_ref(
+                write_model,
+                ivref,
+                [isnan(s) ? supps[vt_idx_to_supp_idx[j], i] : s 
+                 for (j, s) in enumerate(eval_supp)]
+            )
+            for i in eachindex(coeffs)
+        ))
     # make semi-infinite variables if the variable contains other parameters
     else
-        # get the indices of prefs in terms of the ivref
-        new_indices = [findfirst(isequal(pref), orig_prefs) for pref in prefs]
-        # check that if any of the indices are empty or already reduced and truncate as needed
-        bad_index = map(i -> i === nothing || i in keys(eval_supps), new_indices)
-        if any(bad_index)
-            deleteat!(new_indices, bad_index)
-            supps = supps[.!bad_index, :]
-        end
-        # prepare the indices and values for semi-infinite variable construction
-        collected_indices = collect(keys(eval_supps))
-        vals = map(k -> eval_supps[k], collected_indices) # a support will be appended on the fly
-        indices = append!(collected_indices, new_indices)
-        # make the expression
-        expr = _MA.@rewrite(sum(coeffs[i] * w(supps[:, i]) *
-                    make_semi_infinite_variable_ref(write_model, ivref, indices, vcat(vals, supps[:, i]))
-                    for i in eachindex(coeffs)))
+        expr = @_expr(sum(
+            coeffs[i] * w(supps[:, i]) *
+            make_semi_infinite_variable_ref(
+                write_model,
+                ivref,
+                [begin
+                    if isnan(s) && haskey(vt_idx_to_supp_idx, j)
+                        supps[vt_idx_to_supp_idx[j], i]
+                    else
+                        s
+                    end
+                end for (j, s) in enumerate(eval_supp)]
+            )
+            for i in eachindex(coeffs)
+        ))
     end
     return expr
 end
 
 # FiniteRef (1D DiscreteMeasureData)
-function expand_measure(vref::GeneralVariableRef,
-                        index_type::Type{V},
-                        data::DiscreteMeasureData{GeneralVariableRef, 1},
-                        write_model::JuMP.AbstractModel
-                        )::JuMP.GenericAffExpr where {V <: FiniteIndex}
+function expand_measure(
+    vref::GeneralVariableRef,
+    index_type::Type{V},
+    data::DiscreteMeasureData{GeneralVariableRef, 1},
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
+    ) where {V <: FiniteIndex}
     # pull in the needed information
     supps = supports(data)
     coeffs = coefficients(data)
@@ -428,11 +420,12 @@ function expand_measure(vref::GeneralVariableRef,
 end
 
 # FiniteRef (Multi DiscreteMeasureData)
-function expand_measure(vref::GeneralVariableRef,
-                        index_type::Type{V},
-                        data::DiscreteMeasureData{Vector{GeneralVariableRef}, 2},
-                        write_model::JuMP.AbstractModel
-                        )::JuMP.GenericAffExpr where {V <: FiniteIndex}
+function expand_measure(
+    vref::GeneralVariableRef,
+    index_type::Type{V},
+    data::DiscreteMeasureData{Vector{GeneralVariableRef}, 2},
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
+    ) where {V <: FiniteIndex}
     # pull in the needed information
     supps = supports(data)
     coeffs = coefficients(data)
@@ -443,11 +436,12 @@ function expand_measure(vref::GeneralVariableRef,
 end
 
 # InfiniteParameterRef (1D DiscreteMeasureData)
-function expand_measure(pref::GeneralVariableRef,
-                        index_type::Type{P},
-                        data::DiscreteMeasureData{GeneralVariableRef, 1},
-                        write_model::JuMP.AbstractModel
-                        )::Union{JuMP.GenericAffExpr, Float64} where {P <: InfiniteParameterIndex}
+function expand_measure(
+    pref::GeneralVariableRef,
+    index_type::Type{P},
+    data::DiscreteMeasureData{GeneralVariableRef, 1},
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
+    ) where {P <: InfiniteParameterIndex}
     # pull in the needed information
     meas_pref = parameter_refs(data)
     supps = supports(data)
@@ -464,11 +458,12 @@ function expand_measure(pref::GeneralVariableRef,
 end
 
 # InfiniteParameterRef (Multi DiscreteMeasureData)
-function expand_measure(pref::GeneralVariableRef,
-                        index_type::Type{P},
-                        data::DiscreteMeasureData{Vector{GeneralVariableRef}, 2},
-                        write_model::JuMP.AbstractModel
-                        )::Union{JuMP.GenericAffExpr, Float64} where {P <: InfiniteParameterIndex}
+function expand_measure(
+    pref::GeneralVariableRef,
+    index_type::Type{P},
+    data::DiscreteMeasureData{Vector{GeneralVariableRef}, 2},
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
+    ) where {P <: InfiniteParameterIndex}
     # pull in the needed information
     prefs = parameter_refs(data)
     supps = supports(data)
@@ -477,7 +472,7 @@ function expand_measure(pref::GeneralVariableRef,
     # find the position of pref if it is in the data
     index = findfirst(isequal(pref), prefs)
     # treat the parameter as a constant
-    if index === nothing
+    if isnothing(index)
         par_coef = sum(coeffs[i] * w(supps[:, i]) for i in eachindex(coeffs))
         return JuMP.GenericAffExpr{Float64, GeneralVariableRef}(0, pref => par_coef)
     # replace the parameter with its value
@@ -487,40 +482,44 @@ function expand_measure(pref::GeneralVariableRef,
 end
 
 # GenericAffExpr (1D DiscreteMeasureData)
-function expand_measure(expr::JuMP.GenericAffExpr{C, GeneralVariableRef},
-                        data::DiscreteMeasureData{GeneralVariableRef, 1},
-                        write_model::JuMP.AbstractModel
-                        )::Union{JuMP.AbstractJuMPScalar, Float64} where {C}
+function expand_measure(
+    expr::JuMP.GenericAffExpr{C, GeneralVariableRef},
+    data::DiscreteMeasureData{GeneralVariableRef, 1},
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
+    ) where {C}
     # pull in the needed information
     supps = supports(data)
     coeffs = coefficients(data)
     w = weight_function(data)
     # expand each variable independently and add all together
     constant_coef = sum(coeffs[i] * w(supps[i]) for i in eachindex(coeffs))
-    return _MA.@rewrite(sum(coef * expand_measure(var, data, write_model)
+    new_ex = @_expr(sum(coef * expand_measure(var, data, write_model)
                 for (var, coef) in expr.terms) + expr.constant * constant_coef)
+    return JuMP.flatten!(new_ex) # just in case we have nested measures producing a NonlinearExpr
 end
 
 # GenericAffExpr (Multi DiscreteMeasureData)
-function expand_measure(expr::JuMP.GenericAffExpr{C, GeneralVariableRef},
-                        data::DiscreteMeasureData{Vector{GeneralVariableRef}, 2},
-                        write_model::JuMP.AbstractModel
-                        )::Union{JuMP.AbstractJuMPScalar, Float64} where {C}
+function expand_measure(
+    expr::JuMP.GenericAffExpr{C, GeneralVariableRef},
+    data::DiscreteMeasureData{Vector{GeneralVariableRef}, 2},
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
+    ) where {C}
     # pull in the needed information
     supps = supports(data)
     coeffs = coefficients(data)
     w = weight_function(data)
     # expand each variable independently and add all together
     constant_coef = sum(coeffs[i] * w(supps[:, i]) for i in eachindex(coeffs))
-    return _MA.@rewrite(sum(coef * expand_measure(var, data, write_model)
+    new_ex = @_expr(sum(coef * expand_measure(var, data, write_model)
                 for (var, coef) in expr.terms) + expr.constant * constant_coef)
+    return JuMP.flatten!(new_ex) # just in case we have nested measures producing a NonlinearExpr
 end
 
 # GenericQuadExpr (1D DiscreteMeasureData)
 function expand_measure(
     expr::JuMP.GenericQuadExpr,
     data::DiscreteMeasureData{GeneralVariableRef, 1},
-    write_model::JuMP.AbstractModel
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
     )
     # get needed info
     pref = parameter_refs(data)
@@ -534,18 +533,19 @@ function expand_measure(
     # make the expression
     simple_data = DiscreteMeasureData(pref, ones(1), ones(1), label,
                                       default_weight, lb, ub, is_expect)
-    return _MA.@rewrite(sum(sum(coeffs[i] * w(supps[i]) * c *
+    new_ex = @_expr(sum(sum(coeffs[i] * w(supps[i]) * c *
                         _map_variable(p.a, simple_data, supps[i], write_model) * 
                         _map_variable(p.b, simple_data, supps[i], write_model) 
                         for (p, c) in expr.terms) for i in eachindex(coeffs)) + 
                         expand_measure(expr.aff, data, write_model))
+    return JuMP.flatten!(new_ex) # just in case we have nested measures producing a NonlinearExpr
 end
 
 # GenericQuadExpr(Multi DiscreteMeasureData)
 function expand_measure(
     expr::JuMP.GenericQuadExpr,
     data::DiscreteMeasureData{Vector{GeneralVariableRef}, 2},
-    write_model::JuMP.AbstractModel
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
     )
     # get needed info
     prefs = parameter_refs(data)
@@ -559,18 +559,19 @@ function expand_measure(
     # make the expression
     simple_data = DiscreteMeasureData(prefs, ones(1), ones(length(prefs), 1),
                                       label, default_weight, lbs, ubs, is_expect)
-    return _MA.@rewrite(sum(sum(coeffs[i] * w(@view(supps[:, i])) * c *
+    new_ex = @_expr(sum(sum(coeffs[i] * w(@view(supps[:, i])) * c *
                         _map_variable(p.a, simple_data, @view(supps[:, i]), write_model) * 
                         _map_variable(p.b, simple_data, @view(supps[:, i]), write_model) 
                         for (p, c) in expr.terms) for i in eachindex(coeffs)) + 
                         expand_measure(expr.aff, data, write_model))
+    return JuMP.flatten!(new_ex) # just in case we have nested measures producing a NonlinearExpr
 end
 
-# NLPExpr (1D DiscreteMeasureData)
+# NonlinearExpr (1D DiscreteMeasureData)
 function expand_measure(
-    expr::NLPExpr,
+    expr::JuMP.GenericNonlinearExpr,
     data::DiscreteMeasureData{GeneralVariableRef, 1},
-    write_model::JuMP.AbstractModel
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
     )
     # get needed info
     pref = parameter_refs(data)
@@ -584,16 +585,17 @@ function expand_measure(
     # make the expression
     simple_data = DiscreteMeasureData(pref, ones(1), ones(1), label,
                                       default_weight, lb, ub, is_expect)
-    return sum(coeffs[i] * w(supps[i]) * 
-            map_expression(v -> _map_variable(v, simple_data, supps[i], write_model), expr) 
+    new_ex = sum(coeffs[i] * w(supps[i]) * 
+            map_expression(v -> _map_variable(v, simple_data, supps[i], write_model), expr, write_model) 
             for i in eachindex(supps))
+    return JuMP.flatten!(new_ex) # make expression flat over summation
 end
 
-# NLPExpr (Multi DiscreteMeasureData)
+# NonlinearExpr (Multi DiscreteMeasureData)
 function expand_measure(
-    expr::NLPExpr,
+    expr::JuMP.GenericNonlinearExpr,
     data::DiscreteMeasureData{Vector{GeneralVariableRef}, 2},
-    write_model::JuMP.AbstractModel
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
     )
     # get needed info
     prefs = parameter_refs(data)
@@ -607,18 +609,20 @@ function expand_measure(
     # make the expression
     simple_data = DiscreteMeasureData(prefs, ones(1), ones(length(prefs), 1),
                                       label, default_weight, lbs, ubs, is_expect)
-    return sum(coeffs[i] * w(@view(supps[:, i])) * 
-            map_expression(v -> _map_variable(v, simple_data, @view(supps[:, i]), write_model), expr) 
+    new_ex = sum(coeffs[i] * w(@view(supps[:, i])) * 
+            map_expression(v -> _map_variable(v, simple_data, @view(supps[:, i]), write_model), expr, write_model) 
             for i in eachindex(coeffs))
+    return JuMP.flatten!(new_ex) # make expression flat over summation
 end
 
 
 # MeasureRef
-function expand_measure(mref::GeneralVariableRef,
-                        index_type::Type{MeasureIndex},
-                        data::DiscreteMeasureData,
-                        write_model::JuMP.AbstractModel
-                        )::Union{JuMP.AbstractJuMPScalar, Float64}
+function expand_measure(
+    mref::GeneralVariableRef,
+    index_type::Type{MeasureIndex},
+    data::DiscreteMeasureData,
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
+    )
     # determine function and data of the inner measure
     deeper_func = measure_function(mref)
     deeper_data = measure_data(mref)
@@ -629,10 +633,10 @@ function expand_measure(mref::GeneralVariableRef,
 end
 
 # Call add_generative_supports if needed 
-function _prep_generative_supps(prefs, info_type::Type{NoGenerativeSupports})::Nothing 
+function _prep_generative_supps(prefs, info_type::Type{NoGenerativeSupports})
     return
 end
-function _prep_generative_supps(pref, info_type)::Nothing 
+function _prep_generative_supps(pref, info_type)
     add_generative_supports(pref)
     return
 end
@@ -641,7 +645,7 @@ end
 function expand_measure(
     expr,
     data::FunctionalDiscreteMeasureData{P, B, I},
-    write_model::JuMP.AbstractModel
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
     ) where {P, B, I}
     # get the info
     prefs = parameter_refs(data)
@@ -663,7 +667,7 @@ end
 function expand_measure(
     expr, 
     data::AbstractMeasureData,
-    ::JuMP.AbstractModel
+    ::Union{InfiniteModel, AbstractTransformationBackend}
     )
     expr_type = typeof(expr)
     data_type = typeof(data)
@@ -676,8 +680,11 @@ end
 #                          ANALYTIC EXPANSION METHODS
 ################################################################################
 """
-    analytic_expansion(expr, data::AbstractMeasureData,
-                       write_model::JuMP.AbstractModel)::JuMP.AbstractJuMPScalar
+    analytic_expansion(
+        expr, 
+        data::AbstractMeasureData,
+        write_model::Union{InfiniteModel, AbstractTransformationBackend}
+        )::JuMP.AbstractJuMPScalar
 
 Analytically, evaluate measure in the simple case where the measure expression
 `expr` doesn't depend on `data` and thus `expr` can be treated as a constant in
@@ -694,7 +701,7 @@ function analytic_expansion(
     expr::JuMP.AbstractJuMPScalar,
     data::Union{DiscreteMeasureData{GeneralVariableRef, 1},
                 FunctionalDiscreteMeasureData{GeneralVariableRef}},
-    write_model::JuMP.AbstractModel # needed for fallback
+    write_model::Union{InfiniteModel, AbstractTransformationBackend} # needed for fallback
     )
     # get the bounds and expect
     lb = JuMP.lower_bound(data)
@@ -719,7 +726,7 @@ function analytic_expansion(
     expr::JuMP.AbstractJuMPScalar,
     data::Union{DiscreteMeasureData{Vector{GeneralVariableRef}, 2},
                 FunctionalDiscreteMeasureData{Vector{GeneralVariableRef}}},
-    write_model::JuMP.AbstractModel # needed for fallback
+    write_model::Union{InfiniteModel, AbstractTransformationBackend} # needed for fallback
     )
     # get the bounds and expect
     lbs = JuMP.lower_bound(data)
@@ -743,7 +750,7 @@ end
 function analytic_expansion(
     expr, 
     data::AbstractMeasureData,
-    write_model::JuMP.AbstractModel
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
     )
     return expand_measure(expr, data, write_model)
 end
@@ -762,7 +769,7 @@ expansion is undefined for the measure data and/or the measure expression. If
 desired this can be used in combination with [`measure`](@ref) to expand measures
 on the fly.
 
-This is useful for extensions that employ a custom optimizer model since it
+This is useful for extensions that employ a custom transformation backend since it
 can be used evaluate measures before expressions are translated to the new model.
 This method can also be extended to handle custom measure data types by extending
 [`expand_measure`](@ref). Optionally, [`analytic_expansion`](@ref) can also
@@ -789,12 +796,15 @@ end
 
 
 """
-    expand_measures(expr, write_model::JuMP.AbstractModel)::JuMP.AbstractJuMPScalar
+    expand_measures(
+        expr, 
+        write_model::Union{InfiniteModel, AbstractTransformationBackend}
+        )
 
 Expand all `MeasureRef`s in `expr` in-place via [`expand_measure`](@ref) and
 return the expanded expression. This is an internal method used by
 [`expand_all_measures!`](@ref) and `TranscriptionOpt` but can be useful for
-user-defined optimizer model extensions that add implement
+user-defined transformation backend extensions that add implement
 [`add_point_variable`](@ref)/[`add_semi_infinite_variable`](@ref) in combination 
 with `expand_measure`. `write_model` is the model that the measure variables are 
 added to as described in [`expand_measure`](@ref).
@@ -805,7 +815,7 @@ function expand_measures end
 function expand_measures(
     mref::GeneralVariableRef,
     ::Type{MeasureIndex},
-    write_model::JuMP.AbstractModel
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
     )
     if is_analytic(mref)
         return analytic_expansion(measure_function(mref), measure_data(mref),
@@ -820,7 +830,7 @@ end
 function expand_measures(
     vref::GeneralVariableRef,
     ::Type{V},
-    ::JuMP.AbstractModel
+    ::Union{InfiniteModel, AbstractTransformationBackend}
     ) where {V <: AbstractInfOptIndex}
     return vref
 end
@@ -828,42 +838,138 @@ end
 # GeneralVariableRef
 function expand_measures(
     vref::GeneralVariableRef,
-    write_model::JuMP.AbstractModel
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
     )
     return expand_measures(vref, _index_type(vref), write_model)
 end
 
 # Expressions
 function expand_measures(
-    expr::AbstractInfOptExpr,
-    write_model::JuMP.AbstractModel
+    expr::JuMP.AbstractJuMPScalar,
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
     )
-    return map_expression(v -> expand_measures(v, write_model), expr)
+    return map_expression(v -> expand_measures(v, write_model), expr, write_model)
 end
 
 # AbstractArray of expressions 
-function expand_measures(arr::AbstractArray,
-                         write_model::JuMP.AbstractModel
-                         )
+function expand_measures(  
+    arr::AbstractArray,
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
+    )
     return map(e -> expand_measures(e, write_model), arr)
 end
 
 # Fallback
-function expand_measures(expr, ::JuMP.AbstractModel)
+function expand_measures(expr, ::Union{InfiniteModel, AbstractTransformationBackend})
     error("`expand_measures` not defined for expressions of type ",
           "`$(typeof(expr))`.")
 end
+
+# Return the measure that the derivative `dref` is taken of (through any nested
+# derivatives) and the operator parameters and orders from the outermost to the
+# innermost derivative, or `nothing` if the innermost argument is not a measure
+function _derivative_measure_chain(dref::GeneralVariableRef)
+    chain = Tuple{GeneralVariableRef, Int}[]
+    vref = dref
+    while _index_type(vref) == DerivativeIndex
+        push!(chain, (operator_parameter(vref), derivative_order(vref)))
+        vref = derivative_argument(vref)
+    end
+    return _index_type(vref) == MeasureIndex ? (vref, chain) : nothing
+end
+
+# Expand the measure `mref` with the (expanded) measure function `func` in place of
+# its own
+function _expand_measure_with(
+    func::JuMP.AbstractJuMPScalar,
+    mref::GeneralVariableRef,
+    model::InfiniteModel
+    )
+    data = measure_data(mref)
+    if is_analytic(mref)
+        return analytic_expansion(func, data, model)
+    end
+    return expand_measure(func, data, model)
+end
+function _expand_measure_with(func::Number, mref::GeneralVariableRef, model::InfiniteModel)
+    aff = JuMP.GenericAffExpr{Float64, GeneralVariableRef}(func)
+    return _expand_measure_with(aff, mref, model)
+end
+
+# Apply the derivatives in `chain` (from the outermost to the innermost) to the
+# function `func` of the measure that the derivative `dref` is taken of
+function _deriv_measure_function(func, chain, dref::GeneralVariableRef)
+    for (pref, order) in Iterators.reverse(chain)
+        func = deriv(func, ntuple(_ -> pref, order)...)
+    end
+    return func
+end
+function _deriv_measure_function(
+    ::JuMP.GenericNonlinearExpr,
+    chain,
+    dref::GeneralVariableRef
+    )
+    error("`expand_all_measures!` cannot expand the derivative `$dref` because ",
+          "the function of its measure is a nonlinear expression, which `deriv` ",
+          "does not support. Without `expand_all_measures!`, TranscriptionOpt ",
+          "handles such derivatives directly.")
+end
+
+# Expand a derivative of a measure. The measure is not taken over the operator
+# parameters of the derivatives (otherwise it would not depend on them), so the
+# derivatives can be applied to the measure function inside the measure, and then
+# the measure is expanded.
+function _expand_derivative_of_measure(dref::GeneralVariableRef, model::InfiniteModel)
+    mref, chain = _derivative_measure_chain(dref)
+    func = _deriv_measure_function(measure_function(mref), chain, dref)
+    return _expand_measure_with(_expand_measures_and_derivatives(func, model), mref, model)
+end
+
+# Whether `vref` is a derivative of a measure or a measure whose function contains one
+function _contains_derivative_of_measure(vref::GeneralVariableRef)
+    index_type = _index_type(vref)
+    if index_type == DerivativeIndex
+        return !isnothing(_derivative_measure_chain(vref))
+    elseif index_type == MeasureIndex
+        return any(_contains_derivative_of_measure, 
+                   all_expression_variables(measure_function(vref)))
+    end
+    return false
+end
+
+# Expand the measures in `expr`, including measures inside derivatives
+function _expand_measures_and_derivatives(expr, model::InfiniteModel)
+    return map_expression(expr, model) do v
+        if !_contains_derivative_of_measure(v)
+            return expand_measures(v, model)
+        elseif _index_type(v) == DerivativeIndex
+            return _expand_derivative_of_measure(v, model)
+        else
+            func = _expand_measures_and_derivatives(measure_function(v), model)
+            return _expand_measure_with(func, v, model)
+        end
+    end
+end
+function _expand_measures_and_derivatives(arr::AbstractArray, model::InfiniteModel)
+    return map(e -> _expand_measures_and_derivatives(e, model), arr)
+end
+_expand_measures_and_derivatives(c::Number, ::InfiniteModel) = c
 
 """
     expand_all_measures!(model::InfiniteModel)::Nothing
 
 Expand all of the measures used in the objective and/or constraints of `model`.
+This includes measures inside derivatives: since a measure does not depend on the
+parameters it is taken over, a derivative of a measure is expanded as the measure
+of the derivative of its function (e.g., `∂(∫(y, t), x)` as `∫(∂(y, x), t)`).
+Derivatives of measures whose function is a nonlinear expression are not supported
+(since [`deriv`](@ref) does not support nonlinear expressions) and lead to an error.
 The objective and constraints are updated accordingly. Note that
 variables are added to the model as necessary to accomodate the expansion (i.e.,
 point variables and semi-infinite variables are made as needed). Errors if
 expansion is undefined for the measure data and/or the measure expression.
 
-This is useful for extensions that employ a custom optimizer model since it
+This is useful for extensions that employ a custom transformation backend since it
 can be used evaluate measures before `model` is translated into the new model.
 This method can also be extended to handle custom measure data types by extending
 [`expand_measure`](@ref). Note that this method leverages `expand_measure` via
@@ -893,29 +999,44 @@ Subject to
 ```
 """
 function expand_all_measures!(model::InfiniteModel)
+    # derivatives of measures: the expressions that use them do not record the
+    # measure, so collect where these derivatives are used
+    mderivs = filter(d -> !isnothing(_derivative_measure_chain(d)), all_derivatives(model))
+    mderiv_cindices = Set(
+        cindex for d in mderivs
+        for cindex in _constraint_dependencies(dispatch_variable_ref(d))
+        )
+    obj_has_mderivs = any(d -> _data_object(dispatch_variable_ref(d)).in_objective, mderivs)
     # expand the objective if it contains measures
-    if objective_has_measures(model)
-        new_obj = expand_measures(JuMP.objective_function(model), model)
+    if objective_has_measures(model) || obj_has_mderivs
+        new_obj = _expand_measures_and_derivatives(JuMP.objective_function(model), model)
         JuMP.set_objective_function(model, new_obj)
     end
     # expand all of the constraints that contain measures
     for (cindex, object) in model.constraints
-        if !isempty(object.measure_indices)
+        if !isempty(object.measure_indices) || cindex in mderiv_cindices
             old_constr = object.constraint
             set = JuMP.moi_set(old_constr)
             # clear the old dependencies
-            old_vrefs = _all_function_variables(JuMP.jump_function(old_constr))
+            old_vrefs = all_expression_variables(JuMP.jump_function(old_constr))
             for vref in old_vrefs
                 filter!(e -> e != cindex, _constraint_dependencies(vref))
             end
             # expand the expression
-            new_func = expand_measures(JuMP.jump_function(old_constr), model)
-            vrefs = _all_function_variables(new_func)
+            old_func = JuMP.jump_function(old_constr)
+            new_func = _expand_measures_and_derivatives(old_func, model)
+            vrefs = all_expression_variables(new_func)
             # make the new constraint object
-            new_constr = JuMP.build_constraint(error, new_func, set)
+            if old_constr isa DomainRestrictedConstraint
+                restrict = old_constr.restriction
+                con = JuMP.build_constraint(error, new_func, set)
+                new_constr = DomainRestrictedConstraint(con, restrict)
+            else
+                new_constr = JuMP.build_constraint(error, new_func, set)
+            end
             # update the constraint data
-            cref = _make_constraint_ref(model, cindex)
-            _set_core_constraint_object(cref, new_constr)
+            cref = InfOptConstraintRef(model, cindex)
+            _set_core_object(cref, new_constr)
             empty!(object.measure_indices)
             _update_var_constr_mapping(vrefs, cref)
         end

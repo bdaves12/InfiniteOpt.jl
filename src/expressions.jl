@@ -1,520 +1,4 @@
 ################################################################################
-#                          PARAMETER FUNCTION METHODS
-################################################################################
-# Extend dispatch_variable_ref
-function dispatch_variable_ref(
-    model::InfiniteModel,
-    index::ParameterFunctionIndex
-    )::ParameterFunctionRef
-    return ParameterFunctionRef(model, index)
-end
-
-# Extend _add_data_object
-function _add_data_object(
-    model::InfiniteModel,
-    object::ParameterFunctionData
-    )::ParameterFunctionIndex
-    return MOIUC.add_item(model.param_functions, object)
-end
-
-# Extend _data_dictionary (reference based)
-function _data_dictionary(
-    fref::ParameterFunctionRef
-    )::MOIUC.CleverDict{ParameterFunctionIndex, ParameterFunctionData{<:ParameterFunction}}
-    return JuMP.owner_model(fref).param_functions
-end
-
-# Extend _data_object
-function _data_object(fref::ParameterFunctionRef)
-  object = get(_data_dictionary(fref), JuMP.index(fref), nothing)
-  object === nothing && error("Invalid parameter function reference, cannot find " *
-                              "corresponding object in the model. This is likely " *
-                              "caused by using the reference of a deleted function.")
-  return object
-end
-
-# Extend _core_variable_object
-function _core_variable_object(fref::ParameterFunctionRef)
-    return _data_object(fref).func
-end
-
-# Extend _object_numbers
-function _object_numbers(fref::ParameterFunctionRef)::Vector{Int}
-    return _core_variable_object(fref).object_nums
-end
-
-# Extend _parameter_numbers
-function _parameter_numbers(fref::ParameterFunctionRef)::Vector{Int}
-    return _core_variable_object(fref).parameter_nums
-end
-
-"""
-    build_parameter_function(
-        _error::Function, 
-        func::Function, 
-        parameter_refs::Union{GeneralVariableRef, AbstractArray{<:GeneralVariableRef}, Tuple}
-        )::ParameterFunction
-
-Build an [`ParameterFunction`](@ref) object that employs a parameter function 
-`func` that takes instances of the infinite parameter(s) as input. This can 
-ultimately by incorporated into expressions to enable nonlinear infinite parameter 
-behavior and/or incorporate data over infinite domains.
-
-Here `func` should be of the form:
-```
-func(paramvals...)::Float64
-```
-where the formatting of `paramvals` is analagous to point variables (and will be 
-based on the tuple of infinite parameter references given in `parameter_refs`). 
-
-Errors if the infinite parameter tuple is formatted incorrectly. The allowed 
-format follows that of infinite variables. Also errors if the function doesn't 
-accept a support realization of the `parameter_refs` as input.
-
-**Example**
-```julia-repl 
-julia> f = build_parameter_function(error, sin, t);
-```
-"""
-function build_parameter_function(
-    _error::Function, 
-    func::Function, 
-    parameter_refs::Union{GeneralVariableRef, AbstractArray{<:GeneralVariableRef}, Tuple};
-    extra_kwargs...
-    )
-    # check for unneeded keywords
-    for (kwarg, _) in extra_kwargs
-        _error("Keyword argument $kwarg is not for use with parameter functions.")
-    end
-    # process the parameter reference inputs and check
-    prefs = Collections.VectorTuple(parameter_refs)
-    _check_parameter_tuple(_error, prefs)
-    # check the function
-    supp_type = typeof(Tuple(Vector{Float64}(undef, length(prefs)), prefs))
-    if !hasmethod(func, supp_type)
-        _error("Parameter function method `$(func)` is not defined for `$(func)(",
-               join(Tuple(prefs), ", ") * ")`. Note that the infinite parameter ",
-               "arguments `" * join(Tuple(prefs), ", ") * "` are checked via a ",
-               "numeric support (each parameter is a `Float64`) of the same format.")
-    end  
-    # get the parameter object numbers
-    object_nums = Int[]
-    for pref in prefs 
-        union!(object_nums, _object_number(pref))
-    end
-    # get the parameter numbers 
-    param_nums = [_parameter_number(pref) for pref in prefs]
-    # make the variable and return
-    return ParameterFunction(func, prefs, object_nums, param_nums)
-end 
-
-# Fallback for weird macro inputs
-function build_parameter_function(_error::Function, func, prefs; kwargs...)
-    _error("Invalid syntax causing unexpected parsing of the function and " * 
-           "infinite parameter arguments.")
-end 
-
-# Used to update parameter-parameter function mappings
-function _update_param_var_mapping(
-    fref::ParameterFunctionRef,
-    prefs::Collections.VectorTuple
-    )::Nothing
-    for pref in prefs
-        dependency_list = _parameter_function_dependencies(pref)
-        if !(JuMP.index(fref) in dependency_list)
-            push!(dependency_list, JuMP.index(fref))
-        end
-    end
-    return
-end
-
-"""
-    add_parameter_function(model::InfiniteModel, pfunc::ParameterFunction, 
-                           [name::String])::GeneralVariableRef
-
-Add an [`ParameterFunction`](@ref) `pfunc` to the `model` using `name` for 
-printing and return a `GeneralVariableRef` such that it can be embedded in 
-expressions. Errors if the parameter function `pfunc` points to do not belong to 
-`model`. Note that `pfunc` should be created using [`build_parameter_function`](@ref).
-
-**Example**
-```julia-repl
-julia> f = build_parameter_function(error, sin, t);
-
-julia> fref = add_parameter_function(model, f)
-sin(t)
-```
-"""
-function add_parameter_function(
-    model::InfiniteModel, 
-    pfunc::ParameterFunction, 
-    name::String = String(nameof(pfunc.func))
-    )::GeneralVariableRef
-    _check_parameters_valid(model, pfunc.parameter_refs)
-    data_object = ParameterFunctionData(pfunc, name)
-    findex = _add_data_object(model, data_object)
-    fref = ParameterFunctionRef(model, findex)
-    _update_param_var_mapping(fref, pfunc.parameter_refs)
-    return _make_variable_ref(model, findex)
-end
-
-"""
-    JuMP.name(fref::ParameterFunctionRef)::String
-
-Extend `JuMP.name` to return the base name of `fref`.
-
-**Example**
-```julia-repl
-julia> name(fref)
-"func_name"
-```
-"""
-function JuMP.name(fref::ParameterFunctionRef)::String 
-    object = get(_data_dictionary(fref), JuMP.index(fref), nothing)
-    return object === nothing ? "" : object.name
-end
-
-"""
-    JuMP.set_name(fref::ParameterFunctionRef, name::String)::Nothing
-
-Extend `JuMP.set_name` to set the name of a parameter function.
-
-**Example**
-```julia-repl
-julia> set_name(fref, "func_name")
-
-julia> name(fref)
-"func_name"
-```
-"""
-function JuMP.set_name(fref::ParameterFunctionRef, name::String)::Nothing
-    _data_object(fref).name = name
-    return
-end
-
-"""
-    parameter_function(func::Function, 
-                       pref_inputs::Union{GeneralVariableRef, AbstractArray{GeneralVariableRef}, Tuple}; 
-                       [name::String = [the name of `func`]]
-                       )::GeneralVariableRef
-
-Make a parameter function and return a `GeneralVariableRef` that can be 
-embedded in InfiniteOpt expressions. This serves as a convenient wrapper for 
-[`build_parameter_function`](@ref) and [`add_parameter_function`](@ref). For an 
-even more convenient definition method see [`@parameter_function`](@ref).
-
-Here `func` denotes the function that will take a support of infinite parameters as 
-input (formatted like `pref_inputs`) and will return a scalar value. Specifically, 
-`func` should be of the form:
-```
-func(paramvals...)::Float64
-```
-where the formatting of `paramvals` is analagous to point variables (and will be 
-based on the tuple of infinite parameter references given in `parameter_refs`).
-Moreover, `func` must be a function that returns a scalar numeric value. 
-
-Errors if `func` will not take a support formatted like `pref_inputs` in 
-combination with the `fargs` and `fkwargs` specified. Also errors if `pref_inputs` 
-follow an invalid input format.
-
-**Example**
-```julia-repl 
-julia> p_func = parameter_function(sin, t)
-sin(t)
-
-julia> p_func3 = parameter_function((t_supp) -> 2 * sin(2 * t_supp), t, name = "mysin")
-mysin(t)
-
-julia> p_func4 = parameter_function(t, name = "mysin") do t_supp
-                    if t_supp <= 5
-                        return sin(t_supp)
-                    else 
-                        return 2 * sin(2 * t_supp)
-                    end
-                 end
-
-mysin(t)
-```
-"""
-function parameter_function(
-    func::Function, 
-    pref_inputs; 
-    name::String = String(nameof(func))
-    )::GeneralVariableRef
-    f = build_parameter_function(error, func, pref_inputs)
-    model = JuMP.owner_model(first(f.parameter_refs))
-    return add_parameter_function(model, f, name)
-end
-
-"""
-    raw_parameter_refs(fref::ParameterFunctionRef)::VectorTuple
-
-Return the raw [`VectorTuple`](@ref InfiniteOpt.Collections.VectorTuple) of the 
-parameter references that `fref` depends on. This is primarily an internal method 
-where [`parameter_refs`](@ref parameter_refs(::ParameterFunctionRef)) 
-is intended as the preferred user function.
-"""
-function raw_parameter_refs(fref::ParameterFunctionRef)
-    return _core_variable_object(fref).parameter_refs 
-end
-
-"""
-    parameter_refs(fref::ParameterFunctionRef)::Tuple
-
-Return the parameter references associated with `fref`. This
-is formatted as a Tuple of containing the parameter references as they inputted
-to define `fref`.
-
-**Example**
-```julia-repl
-julia> parameter_refs(p_func)
-(t,)
-```
-"""
-function parameter_refs(fref::ParameterFunctionRef)
-    return Tuple(raw_parameter_refs(fref))
-end
-
-"""
-    parameter_list(fref::ParameterFunctionRef)::Vector{GeneralVariableRef}
-
-Return a vector of the parameter references that `fref` depends on. This is
-primarily an internal method where [`parameter_refs`](@ref parameter_refs(::ParameterFunctionRef))
-is intended as the preferred user function.
-"""
-function parameter_list(fref::ParameterFunctionRef)::Vector{GeneralVariableRef}
-    return raw_parameter_refs(fref).values
-end
-
-"""
-    raw_function(fref::ParameterFunctionRef)::Function
-
-Returns the raw function behind `fref` that takes a particular support of `fref`'s 
-infinite parameters as input. 
-"""
-function raw_function(fref::ParameterFunctionRef)
-    return _core_variable_object(fref).func
-end
-
-"""
-    call_function(fref::ParameterFunctionRef, support...)::Float64
-
-Safely evaluates the [`raw_function`](@ref) of `fref` at a particular support `support`
-point that matches the format of the infinite parameter tuple given when the `fref` 
-was defined. This is essentially equivalent to `raw_function(fref)(supps...)`. 
-"""
-function call_function(fref::ParameterFunctionRef, supps...)::Float64
-    pfunc = _core_variable_object(fref)
-    return pfunc.func(supps...)
-end
-
-# Extend _semi_infinite_variable_dependencies
-function _semi_infinite_variable_dependencies(
-    fref::ParameterFunctionRef
-     )::Vector{SemiInfiniteVariableIndex}
-    return _data_object(fref).semi_infinite_var_indices
-end
-
-# Extend _derivative_dependencies
-function _derivative_dependencies(
-    fref::ParameterFunctionRef
-     )::Vector{DerivativeIndex}
-    return _data_object(fref).derivative_indices
-end
-
-# Extend _measure_dependencies
-function _measure_dependencies(fref::ParameterFunctionRef)::Vector{MeasureIndex}
-    return _data_object(fref).measure_indices
-end
-
-# Extend _constraint_dependencies
-function _constraint_dependencies(
-    fref::ParameterFunctionRef
-    )::Vector{InfOptConstraintIndex}
-    return _data_object(fref).constraint_indices
-end
-
-"""
-    used_by_semi_infinite_variable(fref::ParameterFunctionRef)::Bool
-
-Return a `Bool` indicating if `fref` is used by a semi-infinite infinite variable.
-
-**Example**
-```julia-repl
-julia> used_by_semi_infinite_variable(fref)
-false
-```
-"""
-function used_by_semi_infinite_variable(fref::ParameterFunctionRef)::Bool
-    return !isempty(_semi_infinite_variable_dependencies(fref))
-end
-
-"""
-    used_by_derivative(fref::ParameterFunctionRef)::Bool
-
-Return a `Bool` indicating if `fref` is used by a derivative.
-
-**Example**
-```julia-repl
-julia> used_by_derivative(vref)
-true
-```
-"""
-function used_by_derivative(fref::ParameterFunctionRef)::Bool
-    return !isempty(_derivative_dependencies(fref))
-end
-
-"""
-    used_by_measure(fref::ParameterFunctionRef)::Bool
-
-Return a `Bool` indicating if `fref` is used by a measure.
-
-**Example**
-```julia-repl
-julia> used_by_measure(fref)
-true
-```
-"""
-function used_by_measure(fref::ParameterFunctionRef)::Bool
-    return !isempty(_measure_dependencies(fref))
-end
-
-"""
-    used_by_constraint(fref::ParameterFunctionRef)::Bool
-
-Return a `Bool` indicating if `fref` is used by a constraint.
-
-**Example**
-```julia-repl
-julia> used_by_constraint(fref)
-false
-```
-"""
-function used_by_constraint(fref::ParameterFunctionRef)::Bool
-    return !isempty(_constraint_dependencies(fref))
-end
-
-"""
-    is_used(fref::ParameterFunctionRef)::Bool
-
-Return a `Bool` indicating if `fref` is used in the model.
-
-**Example**
-```julia-repl
-julia> is_used(fref)
-true
-```
-"""
-function is_used(fref::ParameterFunctionRef)::Bool
-    return used_by_measure(fref) || used_by_constraint(fref) || 
-           used_by_semi_infinite_variable(fref) || used_by_derivative(fref)
-end
-
-"""
-    JuMP.delete(model::InfiniteModel, fref::ParameterFunctionRef)::Nothing
-
-Extend `JuMP.delete` to delete parameter functions and their dependencies. Errors 
-if `fref` is invalid, meaning it has already been deleted or it belongs to 
-another model.
-"""
-function JuMP.delete(model::InfiniteModel, fref::ParameterFunctionRef)::Nothing 
-    @assert JuMP.is_valid(model, fref) "Parameter function is invalid."
-    # update the optimizer model status
-    if is_used(fref)
-        set_optimizer_model_ready(model, false)
-    end
-    # update parameter mapping
-    all_prefs = parameter_list(fref)
-    for pref in all_prefs
-        filter!(e -> e != JuMP.index(fref), _parameter_function_dependencies(pref))
-    end
-    gvref = _make_variable_ref(model, JuMP.index(fref))
-    # delete associated semi-infinite variables and mapping
-    for index in _semi_infinite_variable_dependencies(fref)
-        JuMP.delete(model, dispatch_variable_ref(model, index))
-    end
-    # delete associated derivative variables and mapping 
-    for index in _derivative_dependencies(fref)
-        JuMP.delete(model, dispatch_variable_ref(model, index))
-    end
-    # remove from measures if used
-    for mindex in _measure_dependencies(fref)
-        mref = dispatch_variable_ref(model, mindex)
-        func = measure_function(mref)
-        data = measure_data(mref)
-        if func isa GeneralVariableRef
-            new_func = zero(JuMP.GenericAffExpr{Float64, GeneralVariableRef})
-            new_meas = Measure(new_func, data, Int[], Int[], true)
-        else
-            _remove_variable(func, gvref)
-            new_meas = build_measure(func, data)
-        end
-        _set_core_variable_object(mref, new_meas)
-    end
-    # remove from constraints if used
-    for cindex in copy(_constraint_dependencies(fref))
-        cref = _make_constraint_ref(model, cindex)
-        func = JuMP.jump_function(JuMP.constraint_object(cref))
-        if func isa GeneralVariableRef
-            set = JuMP.moi_set(JuMP.constraint_object(cref))
-            new_func = zero(JuMP.GenericAffExpr{Float64, GeneralVariableRef})
-            new_constr = JuMP.ScalarConstraint(new_func, set)
-            _set_core_constraint_object(cref, new_constr)
-            empty!(_object_numbers(cref))
-        elseif func isa AbstractArray && any(isequal(gvref), func)
-            JuMP.delete(model, cref)
-        else
-            _remove_variable(func, gvref)
-            _data_object(cref).object_nums = sort(_object_numbers(func))
-        end
-    end
-    # delete the data object
-    _delete_data_object(fref)
-    return
-end
-
-################################################################################
-#                               BASIC EXTENSIONS
-################################################################################
-# Convert to NLPExpr
-function Base.convert(::Type{NLPExpr}, expr)
-    return NLPExpr(_LCRST.Node(_process_child_input(expr)))
-end
-function Base.convert(::Type{NLPExpr}, expr::NLPExpr)
-    return expr
-end
-
-# Redefine Base.isequal for UnorderedPair{GeneralVariableRef} 
-# This avoids symbolic conflicts with ==
-function Base.isequal(
-    p1::P, 
-    p2::P
-    ) where {P <: JuMP.UnorderedPair{GeneralVariableRef}}
-    return (isequal(p1.a, p2.a) && isequal(p1.b, p2.b)) || 
-           (isequal(p1.a, p2.b) && isequal(p1.b, p2.a))
-end
-
-# Define Base.isequal to avoid default to ==
-function Base.isequal(
-    v::Union{GeneralVariableRef, JuMP.GenericAffExpr, JuMP.GenericQuadExpr, NLPExpr}, 
-    w
-    )
-    return false
-end
-function Base.isequal(
-    w, 
-    v::Union{GeneralVariableRef, JuMP.GenericAffExpr, JuMP.GenericQuadExpr, NLPExpr}
-    )
-    return false
-end
-function Base.isequal(
-    w::Union{GeneralVariableRef, JuMP.GenericAffExpr, JuMP.GenericQuadExpr, NLPExpr}, 
-    v::Union{GeneralVariableRef, JuMP.GenericAffExpr, JuMP.GenericQuadExpr, NLPExpr}
-    )
-    return false # relies on underlying extension
-end
-
-################################################################################
 #                              VARIABLE ITERATION
 ################################################################################
 ## Create helper methods to interrogate the variables of an expr w/ a function
@@ -556,10 +40,18 @@ function _interrogate_variables(
     return
 end
 
-# NLPExpr
-function _interrogate_variables(interrogator::Function, nlp::NLPExpr)
-    for n in AbstractTrees.Leaves(nlp.tree_root)
-        _interrogate_variables(interrogator, _node_value(n.data))
+# NonlinearExpr (avoid recursion to handle deeply nested expressions)
+function _interrogate_variables(interrogator::Function, nlp::JuMP.GenericNonlinearExpr)
+    stack = Vector{Any}[nlp.args]
+    while !isempty(stack)
+        args = pop!(stack)
+        for arg in args
+            if arg isa JuMP.GenericNonlinearExpr
+                push!(stack, arg.args)
+            else
+                _interrogate_variables(interrogator, arg)
+            end
+        end
     end
     return
 end
@@ -575,19 +67,36 @@ end
 ################################################################################
 #                            VARIABLE LIST MAKING
 ################################################################################
-## Determine which variables are present in a function
+"""
+    all_expression_variables(expr::JuMP.AbstractJuMPScalar)::Vector
+
+Returns a vector of all the variable references contained in `expr`.
+
+**Example**
+```julia-repl
+julia> all_expr_variables(y^2 + z - t)
+3-element Array{GeneralVariableRef,1}:
+ y(t)
+ z
+ t
+```
+"""
+function all_expression_variables(f)
+    error("`all_expression_variables` not defined for expression of type $(typeof(f)).")
+end
+
 # GeneralVariableRef
-function _all_function_variables(f::GeneralVariableRef)
+function all_expression_variables(f::GeneralVariableRef)
     return [f]
 end
 
 # GenericAffExpr
-function _all_function_variables(f::JuMP.GenericAffExpr)
+function all_expression_variables(f::JuMP.GenericAffExpr)
     return collect(keys(f.terms))
 end
 
 # GenericQuadExpr
-function _all_function_variables(f::JuMP.GenericQuadExpr)
+function all_expression_variables(f::JuMP.GenericQuadExpr)
     vref_set = Set(keys(f.aff.terms))
     for (pair, _) in f.terms
         push!(vref_set, pair.a, pair.b)
@@ -595,111 +104,38 @@ function _all_function_variables(f::JuMP.GenericQuadExpr)
     return collect(vref_set)
 end
 
-# NLPExpr or array of expressions
-function _all_function_variables(f::Union{NLPExpr, AbstractArray})
+# NonlinearExpr or array of expressions
+function all_expression_variables(f::Union{JuMP.GenericNonlinearExpr, AbstractArray})
     vref_set = Set{GeneralVariableRef}()
     _interrogate_variables(v -> push!(vref_set, v), f)
     return collect(vref_set)
 end
 
-# Fallback
-function _all_function_variables(f)
-    error("`_all_function_variables` not defined for expression of type $(typeof(f)).")
-end
-
 ################################################################################
-#                        OBJECT/PARAMETER NUMBER METHODS
+#                        GROUP/PARAMETER NUMBER METHODS
 ################################################################################
-## Return the unique set of object numbers in an expression
+## Return the unique set of parameter group integer indices in an expression
 # Dispatch fallback (--> should be defined for each non-empty variable type)
-_object_numbers(v::DispatchVariableRef) = Int[]
+parameter_group_int_indices(v::DispatchVariableRef) = Int[]
 
-# GeneralVariableRef
-function _object_numbers(v::GeneralVariableRef)
-    return _object_numbers(dispatch_variable_ref(v))
+"""
+    parameter_group_int_indices(vref::GeneralVariableRef)::Vector{Int}
+
+Return the list of infinite parameter group integer indices used by `vref`.
+"""
+function parameter_group_int_indices(v::GeneralVariableRef)
+    return parameter_group_int_indices(dispatch_variable_ref(v))
 end
 
-# Other
-function _object_numbers(expr)
-    obj_nums = Set{Int}()
-    _interrogate_variables(v -> union!(obj_nums, _object_numbers(v)), expr)
-    return collect(obj_nums)
-end
+"""
+    parameter_group_int_indices(expr::JuMP.AbstractJuMPScalar)::Vector{Int}
 
-## Return the unique set of parameter numbers in an expression
-# Dispatch fallback (--> should be defined for each non-empty variable type)
-_parameter_numbers(v::DispatchVariableRef) = Int[]
-
-# GeneralVariableRef
-function _parameter_numbers(v::GeneralVariableRef)
-    return _parameter_numbers(dispatch_variable_ref(v))
-end
-
-# Other
-function _parameter_numbers(expr)
-    param_nums = Set{Int}()
-    _interrogate_variables(v -> union!(param_nums, _parameter_numbers(v)), expr)
-    return collect(param_nums)
-end
-
-################################################################################
-#                             MODEL EXTRACTION METHODS
-################################################################################
-## Get the model from an expression
-# Constant
-function _model_from_expr(::Union{Number, Bool})
-    return
-end
-
-# GeneralVariableRef
-function _model_from_expr(expr::GeneralVariableRef)
-    return JuMP.owner_model(expr)
-end
-
-# AffExpr
-function _model_from_expr(expr::JuMP.GenericAffExpr)
-    if isempty(expr.terms)
-        return
-    else
-        return JuMP.owner_model(first(keys(expr.terms)))
-    end
-end
-
-# QuadExpr
-function _model_from_expr(expr::JuMP.GenericQuadExpr)
-    result = _model_from_expr(expr.aff)
-    if result !== nothing
-        return result
-    elseif isempty(expr.terms)
-        return
-    else
-        return JuMP.owner_model(first(keys(expr.terms)).a)
-    end
-end
-
-# NLPExpr
-function _model_from_expr(expr::NLPExpr)
-    for node in AbstractTrees.Leaves(expr.tree_root)
-        result = _model_from_expr(_node_value(node.data))
-        if result !== nothing
-            return result 
-        end
-    end
-    return
-end
-
-# Vector{GeneralVariableRef}
-function _model_from_expr(vrefs::Vector{GeneralVariableRef})
-    if isempty(vrefs)
-        return
-    else
-        return JuMP.owner_model(first(vrefs))
-    end
-end
-
-# Fallback
-function _model_from_expr(expr)
-    error("`_model_from_expr` not defined for expr of type $(typeof(expr)).")
+Return the list of infinite parameter group integer indices used by `expr`.
+"""
+function parameter_group_int_indices(expr)
+    group_int_idxs = Set{Int}()
+    _interrogate_variables(v -> union!(group_int_idxs, parameter_group_int_indices(v)), expr)
+    return collect(group_int_idxs)
 end
 
 ################################################################################
@@ -725,29 +161,37 @@ function _remove_variable(f::JuMP.GenericQuadExpr, vref::GeneralVariableRef)
     return
 end
 
-# Helper functions for NLP variable deletion
-function _remove_variable_from_node(node, c, vref)
-    return
+# Helper functions for nonlinear variable deletion
+function _remove_variable_from_leaf(c, vref)
+    return c
 end
-function _remove_variable_from_node(node, n_vref::GeneralVariableRef, vref)
-    if isequal(n_vref, vref)
-        node.data = NodeData(0.0)
-    end
-    return
+function _remove_variable_from_leaf(n_vref::GeneralVariableRef, vref)
+    return isequal(n_vref, vref) ? 0.0 : n_vref
 end
-function _remove_variable_from_node(
-    node, 
+function _remove_variable_from_leaf(
     ex::Union{JuMP.GenericAffExpr, JuMP.GenericQuadExpr}, 
     vref
-    )::Nothing
+    )
     _remove_variable(ex, vref)
-    return
+    return ex
 end
 
-# NLPExpr
-function _remove_variable(f::NLPExpr, vref::GeneralVariableRef)
-    for node in AbstractTrees.Leaves(f.tree_root)
-        _remove_variable_from_node(node, _node_value(node.data), vref)
+# Nonlinear (avoid recursion to handle deeply nested expressions)
+function _remove_variable(f::JuMP.GenericNonlinearExpr, vref::GeneralVariableRef)
+    stack = Tuple{Vector{Any}, Int}[]
+    for i in eachindex(f.args) # should be reverse, but order doesn't matter
+        push!(stack, (f.args, i))
+    end
+    while !isempty(stack)
+        arr, idx = pop!(stack)
+        expr = arr[idx]
+        if expr isa JuMP.GenericNonlinearExpr
+            for i in eachindex(expr.args) # should be reverse, but order doesn't matter
+                push!(stack, (expr.args, i))
+            end
+        else
+            arr[idx] = _remove_variable_from_leaf(expr, vref)
+        end
     end
     return
 end
@@ -764,48 +208,157 @@ end
 #                                MAPPING METHODS
 ################################################################################
 """
-    map_expression(transform::Function, 
-                   expr::JuMP.AbstractJuMPScalar)::JuMP.AbstractJuMPScalar
+    map_expression(
+        transform::Function, 
+        expr::JuMP.AbstractJuMPScalar,
+        [write_model::Union{InfiniteModel, AbstractTransformationBackend}]
+    )::JuMP.AbstractJuMPScalar
 
 Map and return a new expression of `expr` where each variable is transformed 
-via `transform`. This can be helpful for writing user extensions.
+via `transform`. This can be helpful for writing user extensions. For this 
+to work with new `AbstractTransformationBackend`s, 
+[`JuMP.variable_ref_type`](@ref) needs to be defined for the backend. If 
+`write_model` is not provided, the `JuMP.owner_model(expr)` is used.
+`JuMP.owner_model(expr)` is used.
 """
-function map_expression(transform::Function, v::JuMP.AbstractVariableRef)
+function map_expression(
+    transform::Function,
+    v::JuMP.AbstractVariableRef,
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
+    )
     return transform(v)
 end
 
+# Constant
+function map_expression(
+    transform::Function,
+    c::Number,
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
+    )
+    return c
+end
+
 # AffExpr
-function map_expression(transform::Function, aff::JuMP.GenericAffExpr)
-    return _MA.@rewrite(sum(c * transform(v) 
+function map_expression(
+    transform::Function,
+    aff::JuMP.GenericAffExpr,
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
+    )
+    # flatten needed in case expression becomes nonlinear with transform
+    return JuMP.flatten!(@_expr(sum(c * transform(v) 
                         for (c, v) in JuMP.linear_terms(aff)) + 
-                        JuMP.constant(aff))
+                        JuMP.constant(aff)))
 end
 
 # QuadExpr
-function map_expression(transform::Function, quad::JuMP.GenericQuadExpr)
-    return _MA.@rewrite(sum(c * transform(v1) * transform(v2) 
+function map_expression(
+    transform::Function,
+    quad::JuMP.GenericQuadExpr,
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
+    )
+    # flatten needed in case expression becomes nonlinear with transform
+    return JuMP.flatten!(@_expr(sum(c * transform(v1) * transform(v2) 
                         for (c, v1, v2) in JuMP.quad_terms(quad)) + 
-                        map_expression(transform, quad.aff))
+                        map_expression(transform, quad.aff, write_model)))
 end
 
-# Helper methods for mapping NLP trees 
-function _process_node(expr::NLPExpr)
-    return expr.tree_root
-end
-function _process_node(expr)
-    return _LCRST.Node(NodeData(expr))
-end
-function _map_expr_node(transform, data::JuMP.AbstractJuMPScalar)
-    return _process_node(map_expression(transform, data))
-end
-function _map_expr_node(transform, data)
-    return _LCRST.Node(NodeData(data))
+# NonlinearExpr 
+function map_expression(
+    transform::Function,
+    nlp::JuMP.GenericNonlinearExpr,
+    write_model::Union{InfiniteModel, AbstractTransformationBackend}
+    )
+    stack = Tuple{Vector{Any}, Vector{Any}}[]
+    NewVrefType = JuMP.variable_ref_type(write_model)
+    new_nlp = JuMP.GenericNonlinearExpr{NewVrefType}(nlp.head, Any[])
+    push!(stack, (nlp.args, new_nlp.args))
+    while !isempty(stack)
+        args, cloned = pop!(stack)
+        for arg in args
+            if arg isa JuMP.GenericNonlinearExpr
+                new_expr = JuMP.GenericNonlinearExpr{NewVrefType}(arg.head, Any[])
+                push!(stack, (arg.args, new_expr.args))
+            else
+                new_expr = map_expression(transform, arg, write_model)
+            end
+            push!(cloned, new_expr)
+        end
+    end
+    return new_nlp
 end
 
-# NLPExpr
-function map_expression(transform::Function, nlp::NLPExpr)
-    return NLPExpr(_map_tree(n -> _map_expr_node(transform, _node_value(n.data)), 
-                   nlp.tree_root))
+# Two arguments
+function map_expression(transform::Function, expr::JuMP.AbstractJuMPScalar)
+    model = JuMP.owner_model(expr)
+    isnothing(model) && return expr
+    return map_expression(transform, expr, model)
+end
+function map_expression(transform::Function, c::Number)
+    return c
+end
+
+################################################################################
+#                            EXPRESSION RESTICTIONS
+################################################################################
+"""
+    restrict(expr::JuMP.AbstractJuMPScalar, supps...)::JuMP.AbstractJuMPScalar
+
+Restrict an infinite expression `expr` to be enforced over infinite parameter 
+supports `supps`. This is limited to expressions only contain infinite variables 
+with the same kind of infinite parameter dependencies. Note that more conveniently 
+the expression can be treated as a function for the syntax `expr(supps...)`. 
+
+**Example**
+```julia-repl
+julia> ex = @expression(model, 3y - 2)
+3 y(t) - 2
+
+julia> restrict(ex, 0)
+3 y(0) - 2
+
+julia> ex(0)
+3 y(0) - 2
+```
+"""
+function restrict(expr::JuMP.AbstractJuMPScalar, supps...)
+    # check to make sure all variables depend on the same infinite parameters
+    pref_tuples = Set()
+    _interrogate_variables(expr) do v
+        if v.index_type <: InfiniteParameterIndex
+            error("Restrictions on expressions with infinite parameters are not supported.")
+        elseif !(v.index_type <: Union{FiniteVariableIndex, PointVariableIndex, FiniteParameterIndex})
+            push!(pref_tuples, raw_parameter_refs(v))
+        end
+    end
+    if length(pref_tuples) > 1
+        error("Unable to restrict expression `$expr` with supports `$supps`. " *
+              "Not all the variables use the same infinite parameters in the " *
+              "same format.")
+    end
+    # restrict the expression using supps and return
+    return map_expression(expr) do v
+        if isempty(parameter_group_int_indices(v))
+            return v
+        else
+            return restrict(v, supps...)
+        end
+    end
+end
+
+## Make expressions callable for restrictions
+# AffExprs
+function (aff::JuMP.GenericAffExpr{Float64, GeneralVariableRef})(supps...) 
+    return restrict(aff, supps...)
+end
+
+# QuadExprs
+function (quad::JuMP.GenericQuadExpr{Float64, GeneralVariableRef})(supps...) 
+    return restrict(quad, supps...)
+end
+
+# NonlinearExprs
+function (nl::JuMP.GenericNonlinearExpr{GeneralVariableRef})(supps...) 
+    return restrict(nl, supps...)
 end
 
 ################################################################################
@@ -816,7 +369,7 @@ end
 function _set_variable_coefficient!(expr::GeneralVariableRef,
     var::GeneralVariableRef,
     coeff::Real
-    )::JuMP.GenericAffExpr{Float64, GeneralVariableRef}
+    )
     # Determine if variable is that of the expression and change accordingly
     if isequal(expr, var)
         return Float64(coeff) * var
@@ -826,10 +379,10 @@ function _set_variable_coefficient!(expr::GeneralVariableRef,
 end
 
 # GenericAffExpr
-function _set_variable_coefficient!(expr::JuMP.GenericAffExpr{C, V},
-    var::V,
+function _set_variable_coefficient!(expr::JuMP.GenericAffExpr,
+    var::GeneralVariableRef,
     coeff::Real
-    )::JuMP.GenericAffExpr{C, V} where {C, V <: GeneralVariableRef}
+    )
     # Determine if variable is in the expression and change accordingly
     if haskey(expr.terms, var)
         expr.terms[var] = coeff
@@ -840,10 +393,10 @@ function _set_variable_coefficient!(expr::JuMP.GenericAffExpr{C, V},
 end
 
 # GenericQuadExpr
-function _set_variable_coefficient!(expr::JuMP.GenericQuadExpr{C, V},
-    var::V,
+function _set_variable_coefficient!(expr::JuMP.GenericQuadExpr,
+    var::GeneralVariableRef,
     coeff::Real
-    )::JuMP.GenericQuadExpr{C, V} where {C, V <: GeneralVariableRef}
+    )
     # Determine if variable is in the expression and change accordingly
     if haskey(expr.aff.terms, var)
         expr.aff.terms[var] = coeff
@@ -863,7 +416,7 @@ end
 function _affine_coefficient(
     func::GeneralVariableRef, 
     var::GeneralVariableRef
-    )::Float64 
+    )
     return isequal(func, var) ? 1.0 : 0.0
 end
 
@@ -871,7 +424,7 @@ end
 function _affine_coefficient(
     func::GenericAffExpr, 
     var::GeneralVariableRef
-    )::Float64 
+    )
     return get(func.terms, var, 0.0)
 end
 
@@ -879,7 +432,7 @@ end
 function _affine_coefficient(
     func::GenericQuadExpr, 
     var::GeneralVariableRef
-    )::Float64 
+    )
     return get(func.aff.terms, var, 0.0)
 end
 
@@ -891,24 +444,6 @@ end
 ################################################################################
 #                         PARAMETER REFERENCE METHODS
 ################################################################################
-## Return an element of a parameter reference tuple given the model and index
-# IndependentParameterIndex
-function _make_param_tuple_element(model::InfiniteModel,
-    idx::IndependentParameterIndex,
-    )::GeneralVariableRef
-    return _make_parameter_ref(model, idx)
-end
-
-# DependentParametersIndex
-function _make_param_tuple_element(model::InfiniteModel,
-    idx::DependentParametersIndex,
-    )::Vector{GeneralVariableRef}
-    dpref = DependentParameterRef(model, DependentParameterIndex(idx, 1))
-    num_params = _num_parameters(dpref)
-    return [GeneralVariableRef(model, idx.value, DependentParameterIndex, i)
-            for i in 1:num_params]
-end
-
 """
     parameter_refs(expr)::Tuple
 
@@ -922,166 +457,48 @@ julia> parameter_refs(my_expr)
 ```
 """
 function parameter_refs(
-    expr::Union{JuMP.GenericAffExpr, JuMP.GenericQuadExpr, NLPExpr}
-    )::Tuple
-    model = _model_from_expr(expr)
-    if model === nothing
-        return ()
-    else
-        obj_nums = sort!(_object_numbers(expr))
-        obj_indices = _param_object_indices(model)[obj_nums]
-        return Tuple(_make_param_tuple_element(model, idx) for idx in obj_indices)
-    end
+    expr::Union{JuMP.GenericAffExpr, JuMP.GenericQuadExpr, JuMP.GenericNonlinearExpr}
+    )
+    model = JuMP.owner_model(expr)
+    isnothing(model) && return ()
+    prefs = parameter_refs(model)
+    group_int_idxs = parameter_group_int_indices(expr)
+    length(prefs) == length(group_int_idxs) && return prefs
+    return Tuple(prefs[i] for i in eachindex(prefs) if i in group_int_idxs)
 end
 
-################################################################################
-#                        VARIABLE ITERATION (IN PROGRESS)
-################################################################################
-# struct Variables{T}
-#     expr::T
-# end
+## Extend Base.getindex for InfiniteReferenceMap
 
-# function Base.iterate(itr::Variables{<:JuMP.AbstractVariableRef})
-#     return itr.tree_root, nothing 
-# end
+# Affine expressions
+function Base.getindex(
+    m::InfiniteReferenceMap,
+    expr::JuMP.GenericAffExpr{T, GeneralVariableRef}
+    ) where {T}
+    new_expr = zero(typeof(expr))
+    for (coef, var) in JuMP.linear_terms(expr)
+        JuMP.add_to_expression!(new_expr, coef, m[var])
+    end
+    new_expr.constant = expr.constant
+    return new_expr
+end
 
-# function Base.iterate(itr::Variables{<:JuMP.AbstractVariableRef}, ::Nothing)
-#     return
-# end
+# Quadratic expressions
+function Base.getindex(
+    m::InfiniteReferenceMap,
+    expr::JuMP.GenericQuadExpr{T, GeneralVariableRef}
+    ) where {T}
+    new_aff = m[expr.aff]
+    new_terms = DataStructures.OrderedDict(
+        JuMP.UnorderedPair(m[k.a], m[k.b]) => v for (k, v) in expr.terms
+    )
+    return JuMP.GenericQuadExpr(new_aff, new_terms)
+end
 
-# Base.length(itr::Variables{<:JuMP.AbstractVariableRef}) = 1
-# Base.eltype(::Variables{V}) where {V <: JuMP.AbstractVariableRef} = V
-
-# function Base.iterate(itr::Variables{<:JuMP.GenericAffExpr})
-#     out = iterate(itr.expr.terms)
-#     return out === nothing ? out : (out[1][1], out[2])
-# end
-
-# function Base.iterate(itr::Variables{<:JuMP.GenericAffExpr}, state)
-#     out = iterate(itr.expr.terms, state)
-#     return out === nothing ? out : (out[1][1], out[2])
-# end
-
-# Base.length(itr::Variables{<:JuMP.GenericAffExpr}) = length(itr.expr.terms)
-# Base.eltype(::Variables{JuMP.GenericAffExpr{C, V}}) where {C, V} = V
-
-# mutable struct _QuadItrData{V <: JuMP.AbstractVariableRef}
-#     state::Int
-#     use_aff::Bool
-#     has_prev_term::Bool
-#     next_term::V
-# end
-
-# function Base.iterate(itr::Variables{JuMP.GenericQuadExpr{C, V}}) where {C, V}
-#     out = iterate(itr.expr.terms)
-#     if out === nothing 
-#         aff_out = iterate(itr.expr.aff.terms)
-#         if aff_out === nothing 
-#             return 
-#         else 
-#             return aff_out[1][1], _QuadItrData{V}(aff_out[2], true, false, aff_out[1][1])
-#         end
-#     end
-#     return out[1][1].a, _QuadItrData{V}(out[2], false, true, out[1][1].b)
-# end
-
-# function Base.iterate(itr::Variables{<:JuMP.GenericQuadExpr}, state)
-#     if state.has_prev_term
-#         state.has_prev_term = false
-#         return state.next_term, state
-#     elseif !state.use_aff
-#         out = iterate(itr.expr.terms, state.state)
-#         if out === nothing 
-#             aff_out = iterate(itr.expr.aff.terms)
-#             if aff_out === nothing 
-#                 return
-#             else 
-#                 state.use_aff = true 
-#                 state.state = aff_out[2]
-#                 return aff_out[1][1], state
-#             end
-#         end
-#         state.state = out[2]
-#         state.has_prev_term = true 
-#         state.next_term = out[1][1].b
-#         return out[1][1].a, state
-#     else
-#         out = iterate(itr.expr.aff.terms, state.state)
-#         if out === nothing 
-#             return 
-#         else
-#             state.state = out[2]
-#             return out[1][1], state
-#         end
-#     end
-# end
-
-# function Base.length(itr::Variables{<:JuMP.GenericQuadExpr}) 
-#     return 2 * length(itr.expr.terms) + length(itr.expr.aff.terms)
-# end
-# Base.eltype(::Variables{JuMP.GenericQuadExpr{C, V}}) where {C, V} = V
-
-# mutable struct _NLPItrData
-#     leaf_itr::AbstractTrees.Leaves{_LCRST.Node{NodeData}}
-#     state::_LCRST.Node{NodeData}
-#     has_internal::Bool
-#     internal_itr::Any
-#     internal_state::Any
-# end
-
-# function _process_itr(raw::GeneralVariableRef, state)
-#     state.has_internal = false
-#     return raw
-# end
-
-# function _process_itr(::Real, state)
-#     out = iterate(state.leaf_itr, state.state)
-#     out === nothing && return
-#     state.state = out[2]
-#     raw = _node_value(out[1].data)
-#     return _process_itr(raw, state)
-# end
-
-# function _process_itr(raw, state)
-#     itr = Variables(raw)
-#     out = iterate(itr)
-#     if out === nothing
-#         new_out = iterate(state.leaf_itr, state.state)
-#         new_out === nothing && return
-#         state.state = new_out[2]
-#         raw = _node_value(new_out[1].data)
-#         return _process_itr(raw, state)
-#     else
-#         state.internal_itr = itr
-#         state.has_internal = true
-#         state.internal_state = out[2]
-#         return out[1]
-#     end
-# end
-
-# function Base.iterate(itr::Variables{NLPExpr})
-#     leaf_itr = AbstractTrees.Leaves(itr.expr.tree_root)
-#     out = iterate(leaf_itr)
-#     out === nothing && return
-#     state = _NLPItrData(leaf_itr, out[2], false, nothing, nothing)
-#     raw = _process_itr(_node_value(out[1].data), state)
-#     return raw === nothing ? raw : (raw, state)
-# end
-
-# function Base.iterate(itr::Variables{NLPExpr}, state)
-#     if state.has_internal
-#         int_out = iterate(state.internal_itr, state.internal_state)
-#         if int_out !== nothing
-#             state.internal_state = int_out[2]
-#             return int_out[1], state
-#         end
-#     end
-#     out = iterate(state.leaf_itr, state.state)
-#     out === nothing && return
-#     state.state = out[2]
-#     raw = _process_itr(_node_value(out[1].data), state)
-#     return raw === nothing ? raw : (raw, state)
-# end
-
-# Base.IteratorSize(::Variables{NLPExpr}) = Base.SizeUnknown()
-# Base.eltype(::Variables{NLPExpr}) = GeneralVariableRef
+# Nonlinear expressions
+function Base.getindex(
+    m::InfiniteReferenceMap,
+    expr::JuMP.GenericNonlinearExpr{V}
+    ) where {V}
+    return JuMP.GenericNonlinearExpr{V}(expr.head,
+                                        Any[m[a] for a in expr.args])
+end

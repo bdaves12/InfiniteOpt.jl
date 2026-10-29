@@ -121,6 +121,7 @@ end
     @test UniformGenerativeInfo([0.0, 1.0], InternalLabel) == UniformGenerativeInfo([2, 6], InternalLabel, 2, 6)
     @test UniformGenerativeInfo([0.0, 1.0], InternalLabel) != UniformGenerativeInfo([2, 5], InternalLabel, 2, 6)
     @test_throws ErrorException UniformGenerativeInfo([2, 6], InternalLabel)
+    @test_throws ErrorException UniformGenerativeInfo(Float64[], InternalLabel)
 end
 
 # Test Derivative Evaluation Methods 
@@ -164,15 +165,20 @@ end
     # test DependentParameters
     @test DependentParameters <: InfOptParameter
     @test DependentParameters(CollectionDomain([IntervalDomain(0, 1)]),
-                              Dict(zeros(1) => Set([All])), 6, [method]).domain isa CollectionDomain
+                              OrderedDict(zeros(1) => Set([All])), 6).domain isa CollectionDomain
     # test ScalarParameterData
     @test ScalarParameterData <: AbstractDataObject
-    @test ScalarParameterData(FiniteParameter(42), 1, 1, "bob").name == "bob"
+    @test ScalarParameterData(FiniteParameter(42), 1, "bob").name == "bob"
     # test MultiParameterData
     @test MultiParameterData <: AbstractDataObject
     params = DependentParameters(CollectionDomain([IntervalDomain(0, 1)]),
-                                 Dict(zeros(1) => Set([All])), 6, [method])
-    @test MultiParameterData(params, 1, 1:1, ["par[1]"]) isa MultiParameterData
+                                 OrderedDict(zeros(1) => Set([All])), 6)
+    @test MultiParameterData(params, 1, ["par[1]"]) isa MultiParameterData
+end
+
+# Test Backends
+@testset "Backends" begin
+    @test JuMPBackend{TestJuMPTag}(Model(), Dict()) isa JuMPBackend{TestJuMPTag, Float64, Dict{Any, Any}}
 end
 
 # Test the InfiniteModel datatype
@@ -183,20 +189,19 @@ end
     # prepare optimizer constructor
     mockoptimizer = () -> MOIU.MockOptimizer(MOIU.UniversalFallback(MOIU.Model{Float64}()),
                                              eval_objective_value=false)
-    mockattributes = MOI.OptimizerWithAttributes(mockoptimizer, MOI.Silent() => true)
     # test optimizer constructors
-    @test InfiniteModel(mockoptimizer).optimizer_constructor == mockoptimizer
-    @test InfiniteModel(mockattributes).optimizer_constructor == mockoptimizer
+    @test solver_name(InfiniteModel(mockoptimizer).backend.model) == "Mock"
     m = InfiniteModel();
     @test isa(Base.broadcastable(m), Base.RefValue{InfiniteModel})
     @test length(JuMP.object_dictionary(m)) == 0
     @test InfiniteModel() isa JuMP.AbstractModel
-    @test InfiniteModel(mockoptimizer, add_bridges = false) isa JuMP.AbstractModel
+    @test InfiniteModel(mockoptimizer, add_bridges = false) isa InfiniteModel
     # test accessors
-    @test InfiniteOpt._last_param_num(m) == 0
-    @test InfiniteOpt._param_object_indices(m) isa Vector{Union{IndependentParameterIndex, DependentParametersIndex}}
+    @test InfiniteOpt.parameter_group_indices(m) isa Vector{Union{IndependentParameterIndex, DependentParametersIndex}}
     # test other methods 
-    @test empty!(InfiniteModel(mockoptimizer)).optimizer_constructor == mockoptimizer
+    @test empty!(InfiniteModel(mockoptimizer)).backend isa TranscriptionBackend
+    @test variable_ref_type(InfiniteModel) == GeneralVariableRef
+    @test variable_ref_type(InfiniteModel()) == GeneralVariableRef
 end
 
 # Test reference variable datatypes
@@ -254,117 +259,6 @@ end
     @test InfOptConstraintRef(m, idx) isa InfOptConstraintRef
 end
 
-# Test DomainRestrictions
-@testset "Domain Restrictions" begin
-    # prepare the data
-    m = InfiniteModel()
-    idx = DependentParametersIndex(1)
-    idx1 = DependentParameterIndex(idx, 1)
-    idx2 = DependentParameterIndex(idx, 2)
-    idx3 = IndependentParameterIndex(1)
-    par1 = GeneralVariableRef(m, 1, DependentParameterIndex, 1)
-    par2 = GeneralVariableRef(m, 1, DependentParameterIndex, 2)
-    par3 = GeneralVariableRef(m, 1, IndependentParameterIndex, -1)
-    pars = [par1, par2]
-    # test datatype
-    @testset "DataType" begin
-        @test DomainRestrictions isa UnionAll
-        d = Dict(par3 => IntervalDomain(0, 1))
-        @test DomainRestrictions(d) isa DomainRestrictions{GeneralVariableRef}
-        @test DomainRestrictions() isa DomainRestrictions{GeneralVariableRef}
-    end
-    # test _expand_parameter_tuple
-    @testset "_expand_parameter_tuple" begin
-        # test good to go
-        d = (par3 => IntervalDomain(0, 1),)
-        @test InfiniteOpt._expand_parameter_tuple(d) == Dict(d...)
-        # test with array of parameters
-        d = (pars => IntervalDomain(0, 1), par3 => IntervalDomain(0, 1))
-        @test InfiniteOpt._expand_parameter_tuple(d) isa Dict
-        # test symbolic domains 
-        d = (pars => [0, 1], par3 => 0)
-        @test InfiniteOpt._expand_parameter_tuple(d) isa Dict
-        # test bad vector domain
-        d = (pars => [0, 1, 3],)
-        @test_throws ErrorException InfiniteOpt._expand_parameter_tuple(d)
-        # test fallback 
-        d = (pars => :a,)
-        @test_throws ErrorException InfiniteOpt._expand_parameter_tuple(d)
-    end
-    # test expansion definition
-    @testset "DomainRestrictions Expansion" begin
-        d = (par3 => IntervalDomain(0, 1),)
-        @test DomainRestrictions(d).intervals == Dict(d...)
-        d = (pars => IntervalDomain(0, 1), par3 => IntervalDomain(0, 1))
-        @test DomainRestrictions(d).intervals isa Dict{GeneralVariableRef, IntervalDomain}
-        @test DomainRestrictions(par3 => 0).intervals isa Dict
-    end
-    dr = DomainRestrictions(par3 => [0, 1])
-    # test intervals
-    @testset "intervals" begin
-        @test intervals(dr) == dr.intervals
-    end
-    # test Base.length
-    @testset "Base.length" begin
-        @test length(dr) == 1
-    end
-    # test Base.isempty
-    @testset "Base.isempty" begin
-        @test !isempty(dr)
-        @test isempty(DomainRestrictions())
-    end
-    # test Base.:(==)
-    @testset "Base.:(==)" begin
-        @test dr == DomainRestrictions((par3 => IntervalDomain(0, 1),))
-        @test dr != DomainRestrictions()
-    end
-    # test Base.copy
-    @testset "Base.copy" begin
-        @test copy(dr) == dr
-    end
-    # test Base.getindex
-    @testset "Base.getindex" begin
-        @test dr[par3] == IntervalDomain(0, 1)
-    end
-    # test Base.setindex!
-    @testset "Base.setindex!" begin
-        @test (dr[par3] = IntervalDomain(0, 2)) == IntervalDomain(0, 2)
-    end
-    # test Base.haskey
-    @testset "Base.haskey" begin
-        @test haskey(dr, par3)
-        @test !haskey(dr, par2)
-    end
-    # test Base.keys
-    @testset "Base.keys" begin
-        @test keys(dr) == keys(intervals(dr))
-    end
-    # test Base.iterate
-    @testset "Base.iterate" begin
-        @test [r for r in dr] == [par3 => IntervalDomain(0, 2)]
-    end
-    # test Base.merge
-    @testset "Base.merge" begin
-        new_dr = DomainRestrictions()
-        @test merge(new_dr, dr) == dr
-    end
-    # test Base.merge!
-    @testset "Base.merge!" begin
-        new_dr = DomainRestrictions()
-        @test merge!(new_dr, dr) isa DomainRestrictions
-        @test new_dr == dr
-    end
-    # test Base.filter
-    @testset "Base.filter" begin
-        @test filter(e -> e[1] != par3, dr) == DomainRestrictions()
-    end
-    # test Base.delete!
-    @testset "Base.delete!" begin
-        @test delete!(dr, par3) isa DomainRestrictions
-        @test length(dr) == 0
-    end
-end
-
 # Test parameter functions 
 @testset "Parameter Functions" begin 
     # useful data
@@ -372,9 +266,9 @@ end
     pref = GeneralVariableRef(m, 1, IndependentParameterIndex, -1)
     vt = IC.VectorTuple(pref)
     # test ParameterFunction
-    @test ParameterFunction(sin, vt, [1], [1]) isa ParameterFunction
+    @test ParameterFunction(sin, vt, [1]) isa ParameterFunction
     # test ParameterFunctionData
-    @test ParameterFunctionData(ParameterFunction(sin, vt, [1], [1])) isa ParameterFunctionData
+    @test ParameterFunctionData(ParameterFunction(sin, vt, [1])) isa ParameterFunctionData
 end
 
 # Test variable datatypes
@@ -383,19 +277,21 @@ end
     m = InfiniteModel()
     num = Float64(0)
     sample_info = VariableInfo(true, num, true, num, true, num, true, num, true, true)
-    func = (x) -> NaN
-    inf_info = VariableInfo(true, num, true, num, true, num, false, func, true, true)
     pref = GeneralVariableRef(m, 1, IndependentParameterIndex, -1)
+    func = (x) -> NaN
+    pfunc = ParameterFunction(func, IC.VectorTuple(pref), [1])
+    inf_info = VariableInfo(true, num, true, pfunc, true, num, false, pfunc, true, true)
     vref = GeneralVariableRef(m, 1, InfiniteVariableIndex)
     # Infinite variable
     @test InfiniteVariable <: JuMP.AbstractVariable
-    @test InfiniteVariable(inf_info, IC.VectorTuple(pref), [1], [1], true) isa InfiniteVariable
+    @test InfiniteVariable(inf_info, IC.VectorTuple(pref), [1]) isa InfiniteVariable
     # Semi-Infinite variable
+    @test RestrictedDomainInfo() isa RestrictedDomainInfo
     @test SemiInfiniteVariable <: JuMP.AbstractVariable
-    @test SemiInfiniteVariable(vref, Dict(1 => Float64(2)), [1], [1]) isa SemiInfiniteVariable
+    @test SemiInfiniteVariable(RestrictedDomainInfo(), vref, [0.5], [1]) isa SemiInfiniteVariable
     # Point variable
     @test PointVariable <: JuMP.AbstractVariable
-    @test PointVariable(sample_info, vref, Float64[1]) isa PointVariable
+    @test PointVariable(RestrictedDomainInfo(), vref, Float64[1]) isa PointVariable
     # VariableData
     @test VariableData <: AbstractDataObject
     @test VariableData(ScalarVariable(sample_info)) isa VariableData
@@ -406,21 +302,21 @@ end
     # useful data
     m = InfiniteModel()
     num = Float64(0)
-    sample_info = VariableInfo(true, num, true, num, true, num, true, num, true, true)
-    func = (x) -> NaN
-    inf_info = VariableInfo(true, num, true, num, true, num, false, func, true, true)
     pref = GeneralVariableRef(m, 1, IndependentParameterIndex, -1)
+    func = (x) -> NaN
+    pfunc = ParameterFunction(func, IC.VectorTuple(pref), [1])
+    inf_info = VariableInfo(true, pfunc, true, num, true, num, false, pfunc, true, true)
     vref = GeneralVariableRef(m, 1, InfiniteVariableIndex)
     dref = GeneralVariableRef(m, 1, DerivativeIndex)
     # derivative
     @test Derivative <: JuMP.AbstractVariable
-    @test Derivative(inf_info, true, vref, pref) isa Derivative
+    @test Derivative(inf_info, vref, pref, 1) isa Derivative
     # Semi-infinite derivative
-    @test SemiInfiniteVariable(dref, Dict(1 => Float64(2)), [1], [1]) isa SemiInfiniteVariable
+    @test SemiInfiniteVariable(RestrictedDomainInfo(), dref, [0.5], [1]) isa SemiInfiniteVariable
     # Point derivative
-    @test PointVariable(sample_info, dref, Float64[1]) isa PointVariable
+    @test PointVariable(RestrictedDomainInfo(), dref, Float64[1]) isa PointVariable
     # VariableData
-    @test VariableData(Derivative(inf_info, true, vref, pref)) isa VariableData
+    @test VariableData(Derivative(inf_info, vref, pref, 2)) isa VariableData
 end
 
 # Test the measure datatypes
@@ -445,11 +341,11 @@ end
     @test Measure isa UnionAll
     @test Measure(zero(AffExpr),
                   DiscreteMeasureData(pref, ones(2), ones(2), All, w, NaN, NaN, false),
-                  [1], [1], false) isa Measure
+                  [1], false) isa Measure
     # MeasureData
     @test MeasureData <: AbstractDataObject
     @test MeasureData(Measure(zero(AffExpr), DiscreteMeasureData(pref,
-                      ones(2), ones(2), All, w, NaN, NaN, false), [1], [1], true)) isa MeasureData
+                      ones(2), ones(2), All, w, NaN, NaN, false), [1], true)) isa MeasureData
 end
 
 # Test the constraint datatypes
@@ -457,12 +353,53 @@ end
     # Setup
     m = InfiniteModel()
     pref = GeneralVariableRef(m, 2, IndependentParameterIndex, -1)
-    rs = DomainRestrictions(pref => [0, 1])
     con = ScalarConstraint(zero(AffExpr), MOI.Integer())
     # DomainRestrictedConstraint
+    @test DomainRestriction((p) -> true, pref) isa DomainRestriction
     @test DomainRestrictedConstraint <: JuMP.AbstractConstraint
-    @test DomainRestrictedConstraint(con, rs).restrictions == rs
+    pfunc = ParameterFunction((x) -> true, IC.VectorTuple(pref), [1])
+    @test DomainRestrictedConstraint(con, pfunc).restriction == pfunc
     # ConstraintData
     @test ConstraintData <: AbstractDataObject
     @test ConstraintData(con, [1], "", MeasureIndex[], false) isa ConstraintData
+end
+
+# Test the operator constructor
+@testset "Nonlinear Operators" begin
+    # Setup
+    f(a) = a^3
+    g(a::Int) = 42
+    h(a, b) = 42
+    f1(a) = 32
+    f2(a) = 10
+    h1(a, b) = 13
+    function hg(v::AbstractVector, a, b)
+        v[1] = 1
+        v[2] = 2
+        return 
+    end
+    function ∇²h(H, x...)
+        H[1, 1] = 1200 * x[1]^2 - 400 * x[2] + 2
+        H[2, 1] = -400 * x[1]
+        H[2, 2] = 200.0
+        return
+    end
+    # Test errors
+    @test_throws ErrorException NLPOperator(:a, 1, f, g)
+    @test_throws ErrorException NLPOperator(:a, 2, f, g)
+    @test_throws ErrorException NLPOperator(:a, 1, f, g, f)
+    @test_throws ErrorException NLPOperator(:a, 1, f, f, g)
+    @test_throws ErrorException NLPOperator(:a, 2, h, hg, hg)
+    # Test regular builds
+    @test NLPOperator(:a, 1, f).name == :a
+    @test NLPOperator(:a, 1, f).dim == 1
+    @test NLPOperator(:a, 1, f).f == f
+    @test NLPOperator(:a, 1, f, f) isa NLPOperator{typeof(f), typeof(f), Nothing}
+    @test NLPOperator(:a, 1, f, f).∇f == f
+    @test NLPOperator(:a, 1, f, f, f) isa NLPOperator{typeof(f), typeof(f), typeof(f)}
+    @test NLPOperator(:a, 1, f, f, f).∇²f == f
+    @test NLPOperator(:a, 2, h, hg) isa NLPOperator{typeof(h), typeof(hg), Nothing}
+    @test NLPOperator(:a, 2, h, hg).∇f == hg
+    @test NLPOperator(:a, 2, h, hg, ∇²h) isa NLPOperator{typeof(h), typeof(hg), typeof(∇²h)}
+    @test NLPOperator(:a, 2, h, hg, ∇²h).∇²f == ∇²h
 end

@@ -36,6 +36,8 @@ struct TestGenInfo <: AbstractGenerativeInfo end
 struct BadData <: AbstractMeasureData end
 struct Bad end
 struct NotADomainType end
+struct TestJuMPTag <: AbstractJuMPTag end
+struct TestBackend <: AbstractTransformationBackend end
 struct TestIndex <: ObjectIndex
     value::Int
 end
@@ -60,9 +62,14 @@ InfiniteOpt.support_label(::TestGenMethod) = InternalLabel
 # Define test functions
 function new_fn end
 
+# Define some fallbacks for TestBackend
+JuMP.get_attribute(::TestBackend, ::MOI.TerminationStatus) = MOI.ALMOST_LOCALLY_SOLVED
+JuMP.get_attribute(::TestBackend, ::MOI.PrimalStatus) = MOI.NEARLY_FEASIBLE_POINT
+JuMP.get_attribute(::TestBackend, ::MOI.DualStatus) = MOI.NEARLY_FEASIBLE_POINT
+
 # Helper function to test IO methods work correctly
 function show_test(mode, obj, exp_str::String; repl=:both)
-    if mode == REPLMode
+    if mode == MIME("text/plain")
         repl != :show  && @test sprint(print, obj) == exp_str
         repl != :print && @test sprint(show,  obj) == exp_str
     else
@@ -72,7 +79,7 @@ end
 
 # Helper function for IO methods with different possibilities
 function show_test(mode, obj, exp_str::Vector{String}; repl=:both)
-    if mode == REPLMode
+    if mode == MIME("text/plain")
         repl != :show  && @test sprint(print, obj) in exp_str
         repl != :print && @test sprint(show,  obj) in exp_str
     else
@@ -92,6 +99,16 @@ io_test(f::Function, exp_str::Vector{String}, args...) = begin
     io = IOBuffer()
     f(io, args...)
     @test String(take!(io)) in exp_str
+end
+
+# Test the output of a function that prints to stdout
+function stdout_test(f::Function, exp_str, args...)
+    original_stdout = stdout
+    (read_pipe, write_pipe) = redirect_stdout()
+    @test f(args...) isa Nothing
+    redirect_stdout(original_stdout)
+    close(write_pipe)
+    @test read(read_pipe, String) == exp_str
 end
 
 # Make method for sorting matrices
@@ -114,17 +131,9 @@ function InfiniteOpt.add_supports_to_parameters(d::TestData)::Nothing
 end
 InfiniteOpt.support_label(d::TestData) = UniqueMeasure{:a}
 
-# Define useful function for deletion testing
-function _update_variable_param_refs(vref::InfiniteVariableRef,
-                                     prefs::IC.VectorTuple{GeneralVariableRef}
-                                     )::Nothing
-    # get basic information
-    info = InfiniteOpt._variable_info(vref)
-    param_nums = [InfiniteOpt._parameter_number(pref) for pref in prefs]
-    # get the parameter object numbers
-    object_nums = InfiniteOpt._object_numbers(parameter_list(prefs))
-    is_vect_func = InfiniteOpt._is_vector_start(vref)
-    new_var = InfiniteVariable(info, prefs, param_nums, object_nums, is_vect_func)
-    InfiniteOpt._set_core_variable_object(vref, new_var)
-    return
+
+function Base.isequal(nlp1::GenericNonlinearExpr, nlp2::GenericNonlinearExpr)
+    return nlp1.head == nlp2.head && isequal(nlp1.args, nlp2.args)
 end
+
+

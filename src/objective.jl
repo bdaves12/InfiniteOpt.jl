@@ -18,18 +18,24 @@ function JuMP.objective_sense(model::InfiniteModel)::MOI.OptimizationSense
 end
 
 """
-    JuMP.objective_function(model::InfiniteModel)::JuMP.AbstractJuMPScalar
+    JuMP.objective_function(model::InfiniteModel)::Union{JuMP.AbstractJuMPScalar, AbstractVector}
 
 Extend `JuMP.objective_function` to return the objective of infinite model 
-`model`.
+`model`. Supports scalar values or vectors of scalar values.
 
 **Example**
 ```julia-repl
-julia> objective_function(model)
-1
+julia> objective_function(scalar_model)
+2 x + 1
+
+```julia-repl
+julia> objective_function(multiobjective_model)
+2 x + 1
+5 y - 1
+
 ```
 """
-function JuMP.objective_function(model::InfiniteModel)::JuMP.AbstractJuMPScalar
+function JuMP.objective_function(model::InfiniteModel)::Union{JuMP.AbstractJuMPScalar, AbstractVector}
     return model.objective_function
 end
 
@@ -74,11 +80,12 @@ end
 ################################################################################
 """
     JuMP.set_objective_function(model::InfiniteModel,
-                                func::JuMP.AbstractJuMPScalar)::Nothing
+                                func::Union{JuMP.AbstractJuMPScalar, AbstractVector})::Nothing
 
 Extend `JuMP.set_objective_function` to set the objective expression of
 infinite model `model`. Errors if `func` contains infinite variables and/or
-parameters. Also errors if `func` contains invalid variables.
+parameters. Also errors if `func` contains invalid variables. 
+Supports scalar values or vectors of scalar values.
 
 **Example**
 ```julia-repl
@@ -86,23 +93,29 @@ julia> set_objective_function(model, 2x + 1)
 
 julia> objective_function(model)
 2 x + 1
+
+julia> set_objective_function(model, [2x + 1, 5y - 1)
+
+julia> objective_function(model)
+2 x + 1
+5 y - 1
 ```
 """
 function JuMP.set_objective_function(
     model::InfiniteModel,
-    func::JuMP.AbstractJuMPScalar
+    func::Union{JuMP.AbstractJuMPScalar, AbstractVector}
     )::Nothing
     # gather the unique list of variable references for testing and mapping
-    new_vrefs = _all_function_variables(func)
+    new_vrefs = all_expression_variables(func)
     # test in the model
     for vref in new_vrefs
         JuMP.check_belongs_to_model(vref, model)
     end
-    if !isempty(_object_numbers(new_vrefs))
+    if !isempty(parameter_group_int_indices(new_vrefs))
         error("Objective function cannot contain infinite parameters/variables.")
     end
     # delete old mappings
-    old_vrefs = _all_function_variables(JuMP.objective_function(model))
+    old_vrefs = all_expression_variables(JuMP.objective_function(model))
     for vref in old_vrefs
         _data_object(vref).in_objective = false
     end
@@ -116,7 +129,7 @@ function JuMP.set_objective_function(
             model.objective_has_measures = true
         end
     end
-    set_optimizer_model_ready(model, false)
+    set_transformation_backend_ready(model, false)
     return
 end
 
@@ -136,13 +149,13 @@ julia> objective_function(model)
 """
 function JuMP.set_objective_function(model::InfiniteModel, func::Real)::Nothing
     # delete old mappings
-    old_vrefs = _all_function_variables(JuMP.objective_function(model))
+    old_vrefs = all_expression_variables(JuMP.objective_function(model))
     for vref in old_vrefs
         _data_object(vref).in_objective = false
     end
     # update function
     model.objective_function = JuMP.GenericAffExpr{Float64, GeneralVariableRef}(func)
-    set_optimizer_model_ready(model, false)
+    set_transformation_backend_ready(model, false)
     return
 end
 
@@ -166,17 +179,17 @@ function JuMP.set_objective_sense(
     sense::MOI.OptimizationSense
     )::Nothing
     model.objective_sense = sense
-    set_optimizer_model_ready(model, false)
+    set_transformation_backend_ready(model, false)
     return
 end
 
 """
     JuMP.set_objective(model::InfiniteModel, sense::MOI.OptimizationSense,
-                       func::Union{JuMP.AbstractJuMPScalar, Real})::Nothing
+                       func::Union{JuMP.AbstractJuMPScalar, AbstractVector, Real})::Nothing
 
 Extend `JuMP.set_objective` to set the objective of infinite model
 `model`. Errors if `func` contains infinite variables and/or parameters, or if
-it does not belong to the model.
+it does not belong to the model. Supports scalar values or vectors of scalar values.
 
 **Example**
 ```julia-repl
@@ -184,12 +197,18 @@ julia> set_objective(model, MOI.MIN_SENSE, 2x + 1)
 
 julia> objective_function(model)
 2 x + 1
+
+julia> set_objective(model, MOI.MIN_SENSE, [2x + 1, 5y - 1])
+
+julia> objective_function(model)
+2 x + 1
+5 y - 1
 ```
 """
 function JuMP.set_objective(
     model::InfiniteModel, 
     sense::MOI.OptimizationSense,
-    func::Union{JuMP.AbstractJuMPScalar, Real}
+    func::Union{JuMP.AbstractJuMPScalar, AbstractVector, Real}
     )::Nothing
     JuMP.set_objective_sense(model, sense)
     JuMP.set_objective_function(model, func)
